@@ -1,7 +1,8 @@
 'use client';
 
 import { useStore } from '@/store/useStore';
-import { MEMBERS, HORSE_PERCENT, POOL_PERCENT, RecipientId } from '@/types';
+import { MEMBERS, RecipientId, getHorsePercent, getPoolPercent, PRIORITY_LABELS, PRIORITY_COLORS } from '@/types';
+import Link from 'next/link';
 import { formatCurrency, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { useHydrated } from '@/lib/useHydrated';
 import {
@@ -14,6 +15,7 @@ import {
   Banknote,
   ClipboardList,
   Receipt,
+  // Available imports below
 } from 'lucide-react';
 import {
   BarChart,
@@ -37,7 +39,7 @@ const STATUS_COLORS = {
 
 export default function DashboardPage() {
   const hydrated = useHydrated();
-  const { projects, payments, distributions, quotations } = useStore();
+  const { projects, payments, distributions, quotations, trackingActivities } = useStore();
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">กำลังโหลด...</div>;
 
@@ -62,9 +64,9 @@ export default function DashboardPage() {
     return { name: member.shortName, fullName: member.name, expected, actual, color: member.color };
   });
 
-  const horseExpected = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + (a.cost * HORSE_PERCENT) / 100, 0), 0);
+  const horseExpected = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + (a.cost * getHorsePercent(a)) / 100, 0), 0);
   const horseActual = distPaidAll('horse');
-  const poolExpected = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + (a.cost * POOL_PERCENT) / 100, 0), 0);
+  const poolExpected = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + (a.cost * getPoolPercent(a)) / 100, 0), 0);
   const poolActual = distPaidAll('pool');
 
   const chartData = [
@@ -88,8 +90,8 @@ export default function DashboardPage() {
         id: m.id, name: m.shortName,
         income: project.activities.reduce((s, a) => s + (a.cost * (a.sharePercent[m.id] || 0)) / 100, 0),
       }));
-      const horseIncome = project.activities.reduce((s, a) => s + (a.cost * HORSE_PERCENT) / 100, 0);
-      const poolIncome = project.activities.reduce((s, a) => s + (a.cost * POOL_PERCENT) / 100, 0);
+      const horseIncome = project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0);
+      const poolIncome = project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0);
       const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
       const distributed = distributions.filter((d) => d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
       const progress = project.activities.length > 0
@@ -356,6 +358,125 @@ export default function DashboardPage() {
           })()}
         </div>
       </div>
+
+      {/* Tracking Activities — กำลังทำ + เลย Deadline */}
+      {(() => {
+        const todayMs = new Date().setHours(0, 0, 0, 0);
+        const inProgress = trackingActivities.filter((a) => a.status === 'in_progress');
+        const overdue = trackingActivities.filter((a) => {
+          if (a.status === 'done' || !a.deadline) return false;
+          return new Date(a.deadline).setHours(0, 0, 0, 0) < todayMs;
+        });
+        if (inProgress.length === 0 && overdue.length === 0) return null;
+
+        return (
+          <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-cyan-50 to-blue-50 flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                <ClipboardList size={18} className="text-cyan-600" /> Activity ที่ต้องติดตาม
+              </h2>
+              <Link href="/tracking" className="text-xs text-cyan-700 hover:text-cyan-800 font-medium">
+                ดูทั้งหมด →
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+              {/* เลย deadline */}
+              <div className="p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <h3 className="text-sm font-bold text-red-700">เลย Deadline ({overdue.length})</h3>
+                </div>
+                {overdue.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">ไม่มี Activity เลย deadline 🎉</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {overdue
+                      .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+                      .map((act) => {
+                        const project = projects.find((p) => p.id === act.projectId);
+                        const member = MEMBERS.find((m) => m.id === act.assigneeId);
+                        const daysOver = Math.floor((todayMs - new Date(act.deadline).setHours(0, 0, 0, 0)) / 86400000);
+                        return (
+                          <div key={act.id} className="flex items-start gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <p className="text-sm font-medium text-gray-800 truncate">{act.title}</p>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${PRIORITY_COLORS[act.priority]}`}>
+                                  {PRIORITY_LABELS[act.priority]}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                {project && <span className="truncate">{project.client || project.name}</span>}
+                                {member && (
+                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold shrink-0" style={{ backgroundColor: member.color }}>
+                                    {member.shortName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-xs font-bold text-red-600 shrink-0 bg-white px-2 py-0.5 rounded">เลย {daysOver} วัน</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+
+              {/* กำลังทำ */}
+              <div className="p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  <h3 className="text-sm font-bold text-blue-700">กำลังทำ ({inProgress.length})</h3>
+                </div>
+                {inProgress.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">ไม่มี Activity ที่กำลังทำ</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {inProgress
+                      .sort((a, b) => {
+                        if (!a.deadline) return 1;
+                        if (!b.deadline) return -1;
+                        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+                      })
+                      .map((act) => {
+                        const project = projects.find((p) => p.id === act.projectId);
+                        const member = MEMBERS.find((m) => m.id === act.assigneeId);
+                        const daysLeft = act.deadline
+                          ? Math.ceil((new Date(act.deadline).setHours(0, 0, 0, 0) - todayMs) / 86400000)
+                          : null;
+                        return (
+                          <div key={act.id} className="flex items-start gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <p className="text-sm font-medium text-gray-800 truncate">{act.title}</p>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${PRIORITY_COLORS[act.priority]}`}>
+                                  {PRIORITY_LABELS[act.priority]}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                {project && <span className="truncate">{project.client || project.name}</span>}
+                                {member && (
+                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold shrink-0" style={{ backgroundColor: member.color }}>
+                                    {member.shortName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {daysLeft !== null && (
+                              <span className={`text-xs font-bold shrink-0 px-2 py-0.5 rounded ${daysLeft <= 3 ? 'bg-orange-100 text-orange-700' : 'bg-white text-blue-600'}`}>
+                                {daysLeft === 0 ? 'วันนี้' : `อีก ${daysLeft} วัน`}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

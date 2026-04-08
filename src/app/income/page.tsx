@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, HORSE_PERCENT, POOL_PERCENT } from '@/types';
+import { MEMBERS, HORSE_PERCENT, POOL_PERCENT, getHorsePercent, getPoolPercent } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -63,14 +63,14 @@ export default function IncomePage() {
 
   // ผู้จัดการ + กองกลาง
   const horseExpected = filteredProjects.reduce((total, project) => {
-    return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * HORSE_PERCENT) / 100, 0);
+    return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * getHorsePercent(activity)) / 100, 0);
   }, 0);
   const horseActual = distributions
     .filter((d) => d.recipientId === 'horse' && filteredProjects.some((p) => p.id === d.projectId))
     .reduce((s, d) => s + d.amount, 0);
 
   const poolExpected = filteredProjects.reduce((total, project) => {
-    return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * POOL_PERCENT) / 100, 0);
+    return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * getPoolPercent(activity)) / 100, 0);
   }, 0);
   const poolActual = distributions
     .filter((d) => d.recipientId === 'pool' && filteredProjects.some((p) => p.id === d.projectId))
@@ -95,7 +95,7 @@ export default function IncomePage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">รายได้</h1>
-          <p className="text-gray-500 text-sm mt-1">รายรับจริงที่ชำระแล้ว กับรายรับที่คาดว่าจะได้ (หักผู้จัดการ {HORSE_PERCENT}% + กองกลาง {POOL_PERCENT}% อัตโนมัติ)</p>
+          <p className="text-gray-500 text-sm mt-1">รายรับจริงที่ชำระแล้ว กับรายรับที่คาดว่าจะได้ (หักผู้จัดการ + กองกลาง รายกิจกรรม)</p>
         </div>
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-gray-400" />
@@ -148,7 +148,7 @@ export default function IncomePage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-amber-900">ผู้จัดการ ({HORSE_PERCENT}%)</p>
+            <p className="font-medium text-amber-900">ผู้จัดการ</p>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-amber-700">รับจริง: <strong className="text-green-600">{formatCurrency(horseActual)}</strong></span>
@@ -157,7 +157,7 @@ export default function IncomePage() {
         </div>
         <div className="bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-gray-900">กองกลาง ({POOL_PERCENT}%)</p>
+            <p className="font-medium text-gray-900">กองกลาง</p>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-700">รับจริง: <strong className="text-green-600">{formatCurrency(poolActual)}</strong></span>
@@ -265,7 +265,7 @@ export default function IncomePage() {
       {/* ผู้จัดการ Breakdown */}
       {(() => {
         const horseBreakdown = filteredProjects.map((project) => {
-          const expected = project.activities.reduce((s, a) => s + (a.cost * HORSE_PERCENT) / 100, 0);
+          const expected = project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0);
           const actual = distributions.filter((d) => d.recipientId === 'horse' && d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
           const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
@@ -280,7 +280,7 @@ export default function IncomePage() {
             <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-white flex items-center gap-3">
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs bg-amber-500">ผจก</div>
               <div>
-                <h3 className="font-semibold text-gray-900">ผู้จัดการ ({HORSE_PERCENT}%)</h3>
+                <h3 className="font-semibold text-gray-900">ผู้จัดการ</h3>
                 <p className="text-xs text-gray-500">หักอัตโนมัติจากทุกกิจกรรม</p>
               </div>
               <div className="ml-auto text-right">
@@ -329,7 +329,7 @@ export default function IncomePage() {
       {/* กองกลาง Breakdown */}
       {(() => {
         const poolBreakdown = filteredProjects.map((project) => {
-          const expected = project.activities.reduce((s, a) => s + (a.cost * POOL_PERCENT) / 100, 0);
+          const expected = project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0);
           const actual = distributions.filter((d) => d.recipientId === 'pool' && d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
           const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
@@ -344,7 +344,7 @@ export default function IncomePage() {
             <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white flex items-center gap-3">
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs bg-gray-500">กก</div>
               <div>
-                <h3 className="font-semibold text-gray-900">กองกลาง ({POOL_PERCENT}%)</h3>
+                <h3 className="font-semibold text-gray-900">กองกลาง</h3>
                 <p className="text-xs text-gray-500">หักอัตโนมัติจากทุกกิจกรรม</p>
               </div>
               <div className="ml-auto text-right">

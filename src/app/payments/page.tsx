@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { Banknote, Filter, X, Image } from 'lucide-react';
+import { Banknote, Filter, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getSlips } from '@/types';
 
 export default function PaymentsPage() {
   const hydrated = useHydrated();
   const { payments, projects } = useStore();
   const [filterProjectId, setFilterProjectId] = useState<string>('all');
-  const [viewSlipUrl, setViewSlipUrl] = useState<string | null>(null);
+  const [viewSlips, setViewSlips] = useState<string[] | null>(null);
+  const [viewSlipIndex, setViewSlipIndex] = useState(0);
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">...</div>;
 
@@ -88,13 +90,22 @@ export default function PaymentsPage() {
                       </td>
                       <td className="px-5 py-3 text-right font-bold text-green-600">{formatCurrency(payment.amount)}</td>
                       <td className="px-5 py-3 text-center">
-                        {payment.slipUrl ? (
-                          <button onClick={() => setViewSlipUrl(payment.slipUrl)} className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800">
-                            <Image size={14} /> ดู
-                          </button>
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        )}
+                        {(() => {
+                          const slips = getSlips(payment);
+                          return slips.length > 0 ? (
+                            <button
+                              onClick={() => { setViewSlips(slips); setViewSlipIndex(0); }}
+                              className="relative inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                              <Image size={14} /> ดู
+                              {slips.length > 1 && (
+                                <span className="bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold ml-0.5">{slips.length}</span>
+                              )}
+                            </button>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          );
+                        })()}
                       </td>
                       <td className="px-5 py-3 text-gray-500 text-xs">{payment.note || '-'}</td>
                     </tr>
@@ -113,15 +124,62 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Slip viewer modal */}
-      {viewSlipUrl && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setViewSlipUrl(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-lg max-h-[80vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold text-gray-900">Slip การชำระเงิน</h3>
-              <button onClick={() => setViewSlipUrl(null)}><X size={18} className="text-gray-400" /></button>
+      {/* Multi-slip viewer modal with navigation */}
+      {viewSlips && viewSlips.length > 0 && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewSlips(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">
+                Slip {viewSlipIndex + 1} / {viewSlips.length}
+              </h3>
+              <button onClick={() => setViewSlips(null)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100">
+                <X size={18} />
+              </button>
             </div>
-            <img src={viewSlipUrl} alt="Payment slip" className="w-full rounded-lg" />
+
+            {/* Main image with prev/next buttons */}
+            <div className="relative bg-gray-50 p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={viewSlips[viewSlipIndex]} alt={`Slip ${viewSlipIndex + 1}`} className="w-full max-h-[60vh] object-contain rounded-lg" />
+
+              {viewSlips.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setViewSlipIndex((i) => (i - 1 + viewSlips.length) % viewSlips.length)}
+                    className="absolute left-6 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 hover:bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700"
+                    title="ก่อนหน้า"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <button
+                    onClick={() => setViewSlipIndex((i) => (i + 1) % viewSlips.length)}
+                    className="absolute right-6 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 hover:bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700"
+                    title="ถัดไป"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Thumbnails */}
+            {viewSlips.length > 1 && (
+              <div className="p-4 border-t border-gray-100">
+                <div className="flex gap-2 overflow-x-auto">
+                  {viewSlips.map((slip, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setViewSlipIndex(i)}
+                      className={`relative shrink-0 rounded-lg overflow-hidden border-2 transition-all ${i === viewSlipIndex ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200 hover:border-gray-300 opacity-70 hover:opacity-100'}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={slip} alt={`thumb ${i + 1}`} className="w-16 h-16 object-cover" />
+                      <div className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[10px] rounded px-1">{i + 1}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

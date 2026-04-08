@@ -16,6 +16,7 @@ import {
   LogOut,
   Cloud,
   User as UserIcon,
+  CalendarDays,
 } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/income', label: 'รายได้', icon: Wallet },
   { href: '/projects', label: 'โครงการ', icon: FolderKanban },
+  { href: '/tracking', label: 'Tracking Activities', icon: CalendarDays },
   { href: '/quotations', label: 'ใบเสนอราคา', icon: FileText },
   { href: '/payments', label: 'ประวัติการชำระเงิน', icon: Banknote },
 ];

@@ -29,7 +29,8 @@ create table if not exists payments (
   installment_id text default '',
   amount numeric default 0,
   paid_date text default '',
-  slip_url text default '',
+  slip_url text default '',  -- backwards compat (deprecated)
+  slip_urls jsonb default '[]'::jsonb,  -- รองรับหลายไฟล์
   note text default '',
   created_at timestamptz default now()
 );
@@ -41,10 +42,34 @@ create table if not exists distributions (
   recipient_id text default '',  -- tangmo|frank|ton|horse|pool
   amount numeric default 0,
   paid_date text default '',
-  slip_url text default '',
+  slip_url text default '',  -- backwards compat (deprecated)
+  slip_urls jsonb default '[]'::jsonb,  -- รองรับหลายไฟล์
   note text default '',
   created_at timestamptz default now()
 );
+
+-- Migration: เพิ่ม slip_urls column ถ้ามี table อยู่แล้ว
+alter table payments add column if not exists slip_urls jsonb default '[]'::jsonb;
+alter table distributions add column if not exists slip_urls jsonb default '[]'::jsonb;
+
+-- Tracking Activities (Calendar tasks)
+create table if not exists tracking_activities (
+  id uuid primary key,
+  title text not null,
+  description text default '',
+  project_id text default '',
+  assignee_id text default '',
+  start_date text default '',
+  deadline text default '',
+  status text default 'todo',
+  priority text default 'medium',
+  created_at timestamptz default now()
+);
+
+alter table tracking_activities enable row level security;
+drop policy if exists "Allow authenticated all" on tracking_activities;
+create policy "Allow authenticated all" on tracking_activities
+  for all to authenticated using (true) with check (true);
 
 -- Quotations (items เก็บเป็น JSONB)
 create table if not exists quotations (

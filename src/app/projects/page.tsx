@@ -2,10 +2,11 @@
 
 import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent } from '@/types';
 import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
-import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
+import SlipUploader from '@/components/SlipUploader';
 
 type ProjectForm = Omit<Project, 'id' | 'createdAt' | 'activities' | 'installments'>;
 
@@ -18,7 +19,7 @@ function generateProjectCode(existingProjects: Project[]): string {
 }
 
 const emptyActivity = (): Omit<Activity, 'id'> => ({
-  name: '', cost: 0, sharePercent: { tangmo: 0, frank: 0, ton: 0 }, status: 'pending',
+  name: '', cost: 0, sharePercent: { tangmo: 0, frank: 0, ton: 0 }, horsePercent: HORSE_PERCENT, poolPercent: POOL_PERCENT, status: 'pending',
 });
 
 const emptyInstallment = (): Omit<PaymentInstallment, 'id'> => ({
@@ -54,28 +55,23 @@ export default function ProjectsPage() {
   const [editingInstallmentId, setEditingInstallmentId] = useState<string | null>(null);
   const [showInstallmentForm, setShowInstallmentForm] = useState<string | null>(null);
 
-  const [paymentForm, setPaymentForm] = useState<Omit<PaymentRecord, 'id' | 'createdAt'>>({ projectId: '', installmentId: '', amount: 0, paidDate: '', slipUrl: '', note: '' });
+  const [paymentForm, setPaymentForm] = useState<Omit<PaymentRecord, 'id' | 'createdAt'>>({ projectId: '', installmentId: '', amount: 0, paidDate: '', slipUrl: '', slipUrls: [], note: '' });
   const [showPaymentForm, setShowPaymentForm] = useState<string | null>(null);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [viewSlipUrl, setViewSlipUrl] = useState<string | null>(null);
+  // For viewing multiple slips with navigation
+  const [viewSlips, setViewSlips] = useState<string[] | null>(null);
+  const [viewSlipIndex, setViewSlipIndex] = useState(0);
 
   // Distribution form
   const [showDistForm, setShowDistForm] = useState<string | null>(null);
-  const [distForm, setDistForm] = useState({ projectId: '', recipientId: '' as RecipientId | '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', note: '' });
-
-  const handleDistSlipUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setDistForm({ ...distForm, slipUrl: ev.target?.result as string });
-    reader.readAsDataURL(file);
-  };
+  const [distForm, setDistForm] = useState({ projectId: '', recipientId: '' as RecipientId | '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [] as string[], note: '' });
 
   const handleSaveDistribution = (projectId: string) => {
     if (!distForm.recipientId) { alert('กรุณาเลือกผู้รับเงิน'); return; }
     if (!distForm.amount || distForm.amount <= 0) { alert('กรุณาระบุจำนวนเงิน'); return; }
     addDistribution({ ...distForm, projectId, recipientId: distForm.recipientId as RecipientId });
-    setDistForm({ projectId: '', recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', note: '' });
+    setDistForm({ projectId: '', recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' });
     setShowDistForm(null);
   };
 
@@ -99,7 +95,7 @@ export default function ProjectsPage() {
         { name: 'Publication Support', cost: 15000, sharePercent: { tangmo: 55, frank: 20, ton: 20 } },
       ];
       defaultActs.forEach((act) => {
-        addActivity(projectId, { ...act, status: 'pending' as ProjectStatus });
+        addActivity(projectId, { ...act, horsePercent: HORSE_PERCENT, poolPercent: POOL_PERCENT, status: 'pending' as ProjectStatus });
       });
       // 3 งวดเงิน default + auto-fill จำนวนเงิน
       const totalAll = defaultActs.reduce((s, a) => s + a.cost, 0);
@@ -129,8 +125,10 @@ export default function ProjectsPage() {
   const handleSaveActivity = (projectId: string) => {
     if (!activityForm.name.trim()) return;
     const totalShare = Object.values(activityForm.sharePercent).reduce((a, b) => a + b, 0);
-    if (totalShare + HORSE_PERCENT + POOL_PERCENT > 100) {
-      alert(`ส่วนแบ่งผู้ก่อตั้งรวมต้องไม่เกิน ${100 - HORSE_PERCENT - POOL_PERCENT}% (หักผู้จัดการ ${HORSE_PERCENT}% + กองกลาง ${POOL_PERCENT}% อัตโนมัติ)`);
+    const horseP = activityForm.horsePercent ?? HORSE_PERCENT;
+    const poolP = activityForm.poolPercent ?? POOL_PERCENT;
+    if (totalShare + horseP + poolP > 100) {
+      alert(`ส่วนแบ่งรวมต้องไม่เกิน 100%\nผู้ก่อตั้ง ${totalShare}% + ผู้จัดการ ${horseP}% + กองกลาง ${poolP}% = ${totalShare + horseP + poolP}%`);
       return;
     }
     if (editingActivityId) updateActivity(projectId, editingActivityId, activityForm);
@@ -139,7 +137,14 @@ export default function ProjectsPage() {
   };
 
   const handleEditActivity = (projectId: string, activity: Activity) => {
-    setActivityForm({ name: activity.name, cost: activity.cost, sharePercent: { ...activity.sharePercent }, status: activity.status });
+    setActivityForm({
+      name: activity.name,
+      cost: activity.cost,
+      sharePercent: { ...activity.sharePercent },
+      horsePercent: activity.horsePercent ?? HORSE_PERCENT,
+      poolPercent: activity.poolPercent ?? POOL_PERCENT,
+      status: activity.status,
+    });
     setEditingActivityId(activity.id); setShowActivityForm(projectId);
   };
 
@@ -231,25 +236,19 @@ export default function ProjectsPage() {
     const instId = paymentForm.installmentId;
     setTimeout(() => syncInstallmentStatus(projectId, instId), 100);
 
-    setPaymentForm({ projectId: '', installmentId: '', amount: 0, paidDate: '', slipUrl: '', note: '' });
+    setPaymentForm({ projectId: '', installmentId: '', amount: 0, paidDate: '', slipUrl: '', slipUrls: [], note: '' });
     setShowPaymentForm(null);
     setEditingPaymentId(null);
   };
 
   const handleEditPayment = (projectId: string, payment: PaymentRecord) => {
-    setPaymentForm({ projectId: payment.projectId, installmentId: payment.installmentId, amount: payment.amount, paidDate: payment.paidDate, slipUrl: payment.slipUrl, note: payment.note });
+    // ถ้ายังเป็น slipUrl เก่า → migrate เป็น slipUrls array
+    const slipUrls = (payment.slipUrls && payment.slipUrls.length > 0)
+      ? payment.slipUrls
+      : (payment.slipUrl ? [payment.slipUrl] : []);
+    setPaymentForm({ projectId: payment.projectId, installmentId: payment.installmentId, amount: payment.amount, paidDate: payment.paidDate, slipUrl: payment.slipUrl, slipUrls, note: payment.note });
     setEditingPaymentId(payment.id);
     setShowPaymentForm(projectId);
-  };
-
-  const handleSlipUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setPaymentForm({ ...paymentForm, slipUrl: event.target?.result as string });
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleActivityStatusChange = (projectId: string, activityId: string, activityName: string, newStatus: ProjectStatus) => {
@@ -445,43 +444,77 @@ export default function ProjectsPage() {
                   {activeTab === 'activities' && (
                       <div className="p-5">
                         <div className="flex items-center justify-between mb-4">
-                          <p className="text-xs text-gray-500">* หักผู้จัดการ {HORSE_PERCENT}% + กองกลาง {POOL_PERCENT}% อัตโนมัติทุกกิจกรรม</p>
+                          <p className="text-xs text-gray-500">* หักผู้จัดการ + กองกลาง (ปรับ % รายกิจกรรมได้)</p>
                           <button onClick={() => { setShowActivityForm(project.id); setActivityForm(emptyActivity()); setEditingActivityId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มกิจกรรม</button>
                         </div>
 
                         {showActivityForm === project.id && (
-                          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-                            <h5 className="text-sm font-medium text-gray-700 mb-3">{editingActivityId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรมใหม่'}</h5>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">ชื่อกิจกรรม *</label>
-                                <div className="flex gap-2">
-                                  <select value={STANDARD_ACTIVITIES.includes(activityForm.name as typeof STANDARD_ACTIVITIES[number]) ? activityForm.name : '__custom__'} onChange={(e) => { if (e.target.value !== '__custom__') setActivityForm({ ...activityForm, name: e.target.value }); }} className="border rounded-lg px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
-                                    {STANDARD_ACTIVITIES.map((act) => <option key={act} value={act}>{act}</option>)}
-                                    <option value="__custom__">อื่นๆ</option>
-                                  </select>
-                                  <input type="text" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} className="flex-1 border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="ชื่อกิจกรรม" />
+                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowActivityForm(null); setEditingActivityId(null); }}>
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50 rounded-t-xl">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shadow">
+                                    <ClipboardList size={18} className="text-white" />
+                                  </div>
+                                  <h2 className="font-semibold text-gray-900">{editingActivityId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรมใหม่'}</h2>
+                                </div>
+                                <button onClick={() => { setShowActivityForm(null); setEditingActivityId(null); }} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-white/60">
+                                  <X size={18} />
+                                </button>
+                              </div>
+                              <div className="p-5 space-y-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อกิจกรรม *</label>
+                                  <div className="flex gap-2">
+                                    <select value={STANDARD_ACTIVITIES.includes(activityForm.name as typeof STANDARD_ACTIVITIES[number]) ? activityForm.name : '__custom__'} onChange={(e) => { if (e.target.value !== '__custom__') setActivityForm({ ...activityForm, name: e.target.value }); }} className="border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500">
+                                      {STANDARD_ACTIVITIES.map((act) => <option key={act} value={act}>{act}</option>)}
+                                      <option value="__custom__">อื่นๆ</option>
+                                    </select>
+                                    <input type="text" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} className="flex-1 border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500" placeholder="ชื่อกิจกรรม" />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">ค่าบริการ (บาท)</label>
+                                  <input type="number" value={activityForm.cost || ''} onChange={(e) => setActivityForm({ ...activityForm, cost: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500" placeholder="0" />
+                                </div>
+                                <div>
+                                  {(() => {
+                                    const founderTotal = Object.values(activityForm.sharePercent).reduce((a, b) => a + b, 0);
+                                    const horseP = activityForm.horsePercent ?? HORSE_PERCENT;
+                                    const poolP = activityForm.poolPercent ?? POOL_PERCENT;
+                                    const grandTotal = founderTotal + horseP + poolP;
+                                    return (
+                                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        ส่วนแบ่งทั้งหมด — ผู้ก่อตั้ง <strong>{founderTotal}%</strong> + ผู้จัดการ <strong>{horseP}%</strong> + กองกลาง <strong>{poolP}%</strong> = <strong className={grandTotal > 100 ? 'text-red-600' : grandTotal === 100 ? 'text-green-600' : ''}>{grandTotal}%</strong>
+                                      </label>
+                                    );
+                                  })()}
+                                  <div className="grid grid-cols-3 gap-3 mb-3">
+                                    {MEMBERS.map((member) => (
+                                      <div key={member.id}>
+                                        <label className="block text-xs text-gray-600 mb-1 font-medium">{member.name}</label>
+                                        <input type="number" min={0} max={100} step="0.1" value={activityForm.sharePercent[member.id] || ''} onChange={(e) => setActivityForm({ ...activityForm, sharePercent: { ...activityForm.sharePercent, [member.id]: Number(e.target.value) } })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500" placeholder="0" />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1 font-medium">ผู้จัดการ (%)</label>
+                                      <input type="number" min={0} max={100} step="0.1" value={activityForm.horsePercent ?? HORSE_PERCENT} onChange={(e) => setActivityForm({ ...activityForm, horsePercent: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-amber-50" placeholder="2.5" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1 font-medium">กองกลาง (%)</label>
+                                      <input type="number" min={0} max={100} step="0.1" value={activityForm.poolPercent ?? POOL_PERCENT} onChange={(e) => setActivityForm({ ...activityForm, poolPercent: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50" placeholder="2.5" />
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">ค่าบริการ (บาท)</label>
-                                <input type="number" value={activityForm.cost || ''} onChange={(e) => setActivityForm({ ...activityForm, cost: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
+                              <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
+                                <button onClick={() => { setShowActivityForm(null); setEditingActivityId(null); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
+                                <button onClick={() => handleSaveActivity(project.id)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-pink-700 shadow">
+                                  <Save size={16} /> บันทึก
+                                </button>
                               </div>
-                            </div>
-                            <div className="mb-3">
-                              <label className="block text-xs text-gray-500 mb-2">ส่วนแบ่งผู้ก่อตั้ง (%) — รวม: {Object.values(activityForm.sharePercent).reduce((a, b) => a + b, 0)}% + ผู้จัดการ {HORSE_PERCENT}% + กองกลาง {POOL_PERCENT}% = {Object.values(activityForm.sharePercent).reduce((a, b) => a + b, 0) + HORSE_PERCENT + POOL_PERCENT}%</label>
-                              <div className="grid grid-cols-3 gap-3">
-                                {MEMBERS.map((member) => (
-                                  <div key={member.id}>
-                                    <label className="block text-xs text-gray-600 mb-1">{member.name}</label>
-                                    <input type="number" min={0} max={95} value={activityForm.sharePercent[member.id] || ''} onChange={(e) => setActivityForm({ ...activityForm, sharePercent: { ...activityForm.sharePercent, [member.id]: Number(e.target.value) } })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => { setShowActivityForm(null); setEditingActivityId(null); }} className="px-3 py-1.5 text-xs text-gray-600">ยกเลิก</button>
-                              <button onClick={() => handleSaveActivity(project.id)} className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">บันทึก</button>
                             </div>
                           </div>
                         )}
@@ -512,12 +545,12 @@ export default function ProjectsPage() {
                                       </td>
                                     ))}
                                     <td className="py-2.5 text-center">
-                                      <span className="text-gray-600">{HORSE_PERCENT}%</span><br />
-                                      <span className="text-xs text-gray-400">{formatCurrency((activity.cost * HORSE_PERCENT) / 100)}</span>
+                                      <span className="text-gray-600">{getHorsePercent(activity)}%</span><br />
+                                      <span className="text-xs text-gray-400">{formatCurrency((activity.cost * getHorsePercent(activity)) / 100)}</span>
                                     </td>
                                     <td className="py-2.5 text-center">
-                                      <span className="text-gray-600">{POOL_PERCENT}%</span><br />
-                                      <span className="text-xs text-gray-400">{formatCurrency((activity.cost * POOL_PERCENT) / 100)}</span>
+                                      <span className="text-gray-600">{getPoolPercent(activity)}%</span><br />
+                                      <span className="text-xs text-gray-400">{formatCurrency((activity.cost * getPoolPercent(activity)) / 100)}</span>
                                     </td>
                                     <td className="py-2.5 text-center">
                                       <select
@@ -542,8 +575,8 @@ export default function ProjectsPage() {
                                   <td className="py-2.5">รวม</td>
                                   <td className="py-2.5 text-right">{formatCurrency(totalCost)}</td>
                                   {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((sum, a) => sum + (a.cost * (a.sharePercent[m.id] || 0)) / 100, 0))}</td>)}
-                                  <td className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((s, a) => s + (a.cost * HORSE_PERCENT) / 100, 0))}</td>
-                                  <td className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((s, a) => s + (a.cost * POOL_PERCENT) / 100, 0))}</td>
+                                  <td className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0))}</td>
+                                  <td className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0))}</td>
                                   <td /><td />
                                 </tr>
                               </tbody>
@@ -567,40 +600,56 @@ export default function ProjectsPage() {
                         </div>
 
                         {showInstallmentForm === project.id && (
-                          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-                            <h5 className="text-sm font-medium text-gray-700 mb-3">{editingInstallmentId ? 'แก้ไขงวดเงิน' : 'เพิ่มงวดเงินใหม่'}</h5>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">งวดที่</label>
-                                <input type="number" min={1} value={installmentForm.installmentNumber} onChange={(e) => setInstallmentForm({ ...installmentForm, installmentNumber: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                              </div>
-                              <div className="col-span-2">
-                                <label className="block text-xs text-gray-500 mb-1">ชื่องวด *</label>
-                                <input type="text" value={installmentForm.name} onChange={(e) => setInstallmentForm({ ...installmentForm, name: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="เช่น งวดที่ 1 ส่ง Draft" />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">จำนวนเงิน (บาท)</label>
-                                <input type="number" value={installmentForm.amount || ''} onChange={(e) => setInstallmentForm({ ...installmentForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">สถานะ</label>
-                                <select value={installmentForm.status} onChange={(e) => setInstallmentForm({ ...installmentForm, status: e.target.value as 'pending' | 'paid' })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
-                                  <option value="pending">รอชำระ</option>
-                                  <option value="paid">ชำระแล้ว</option>
-                                </select>
-                              </div>
-                              {installmentForm.status === 'paid' && (
-                                <div>
-                                  <label className="block text-xs text-gray-500 mb-1">วันที่โอน</label>
-                                  <input type="date" value={installmentForm.paidDate} onChange={(e) => setInstallmentForm({ ...installmentForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowInstallmentForm(null); setEditingInstallmentId(null); }}>
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-t-xl">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow">
+                                    <Landmark size={18} className="text-white" />
+                                  </div>
+                                  <h2 className="font-semibold text-gray-900">{editingInstallmentId ? 'แก้ไขงวดเงิน' : 'เพิ่มงวดเงินใหม่'}</h2>
                                 </div>
-                              )}
-                            </div>
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => { setShowInstallmentForm(null); setEditingInstallmentId(null); }} className="px-3 py-1.5 text-xs text-gray-600">ยกเลิก</button>
-                              <button onClick={() => handleSaveInstallment(project.id)} className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">บันทึก</button>
+                                <button onClick={() => { setShowInstallmentForm(null); setEditingInstallmentId(null); }} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-white/60">
+                                  <X size={18} />
+                                </button>
+                              </div>
+                              <div className="p-5 space-y-4">
+                                <div className="grid grid-cols-4 gap-3">
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">งวดที่</label>
+                                    <input type="number" min={1} value={installmentForm.installmentNumber} onChange={(e) => setInstallmentForm({ ...installmentForm, installmentNumber: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                                  </div>
+                                  <div className="col-span-3">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">ชื่องวด *</label>
+                                    <input type="text" value={installmentForm.name} onChange={(e) => setInstallmentForm({ ...installmentForm, name: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="เช่น งวดที่ 1 ส่ง Draft" />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท)</label>
+                                  <input type="number" value={installmentForm.amount || ''} onChange={(e) => setInstallmentForm({ ...installmentForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
+                                    <select value={installmentForm.status} onChange={(e) => setInstallmentForm({ ...installmentForm, status: e.target.value as 'pending' | 'paid' })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                                      <option value="pending">รอชำระ</option>
+                                      <option value="paid">ชำระแล้ว</option>
+                                    </select>
+                                  </div>
+                                  {installmentForm.status === 'paid' && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
+                                      <input type="date" value={installmentForm.paidDate} onChange={(e) => setInstallmentForm({ ...installmentForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
+                                <button onClick={() => { setShowInstallmentForm(null); setEditingInstallmentId(null); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
+                                <button onClick={() => handleSaveInstallment(project.id)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-purple-700 shadow">
+                                  <Save size={16} /> บันทึก
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -678,54 +727,72 @@ export default function ProjectsPage() {
                       <div className="p-5">
                         <div className="flex items-center justify-between mb-4">
                           <p className="text-xs text-gray-500">บันทึกการชำระเงินของโครงการนี้</p>
-                          <button onClick={() => { setShowPaymentForm(project.id); setPaymentForm({ projectId: project.id, installmentId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', note: '' }); setEditingPaymentId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มรายการโอน</button>
+                          <button onClick={() => { setShowPaymentForm(project.id); setPaymentForm({ projectId: project.id, installmentId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); setEditingPaymentId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มรายการโอน</button>
                         </div>
 
                         {showPaymentForm === project.id && (
-                          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-                            <h5 className="text-sm font-medium text-gray-700 mb-3">{editingPaymentId ? 'แก้ไขรายการโอน' : 'เพิ่มรายการโอนใหม่'}</h5>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">งวดเงิน *</label>
-                                <select value={paymentForm.installmentId} onChange={(e) => setPaymentForm({ ...paymentForm, installmentId: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
-                                  <option value="">-- เลือกงวดเงิน --</option>
-                                  {installments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0)).map((inst) => {
-                                    const fullyPaid = isInstallmentFullyPaid(inst);
-                                    const paidSoFar = getInstallmentPaid(inst.id, editingPaymentId || undefined);
-                                    const remaining = inst.amount - paidSoFar;
-                                    const isCurrentEdit = editingPaymentId && paymentForm.installmentId === inst.id;
-                                    return (
-                                      <option key={inst.id} value={inst.id} disabled={fullyPaid && !isCurrentEdit}>
-                                        งวดที่ {inst.installmentNumber}: {inst.name} ({formatCurrency(inst.amount)})
-                                        {fullyPaid ? ' ✅ ชำระครบแล้ว' : remaining < inst.amount ? ` [คงเหลือ ${formatCurrency(remaining)}]` : ''}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
+                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowPaymentForm(null); setEditingPaymentId(null); }}>
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-xl">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow">
+                                    <Banknote size={18} className="text-white" />
+                                  </div>
+                                  <h2 className="font-semibold text-gray-900">{editingPaymentId ? 'แก้ไขรายการชำระเงิน' : 'เพิ่มรายการชำระเงิน'}</h2>
+                                </div>
+                                <button onClick={() => { setShowPaymentForm(null); setEditingPaymentId(null); }} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-white/60">
+                                  <X size={18} />
+                                </button>
                               </div>
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">จำนวนเงิน (บาท) *</label>
-                                <input type="number" value={paymentForm.amount || ''} onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
+                              <div className="p-5 space-y-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">งวดเงิน *</label>
+                                  <select value={paymentForm.installmentId} onChange={(e) => setPaymentForm({ ...paymentForm, installmentId: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">-- เลือกงวดเงิน --</option>
+                                    {installments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0)).map((inst) => {
+                                      const fullyPaid = isInstallmentFullyPaid(inst);
+                                      const paidSoFar = getInstallmentPaid(inst.id, editingPaymentId || undefined);
+                                      const remaining = inst.amount - paidSoFar;
+                                      const isCurrentEdit = editingPaymentId && paymentForm.installmentId === inst.id;
+                                      return (
+                                        <option key={inst.id} value={inst.id} disabled={fullyPaid && !isCurrentEdit}>
+                                          งวดที่ {inst.installmentNumber}: {inst.name} ({formatCurrency(inst.amount)})
+                                          {fullyPaid ? ' ✅ ชำระครบแล้ว' : remaining < inst.amount ? ` [คงเหลือ ${formatCurrency(remaining)}]` : ''}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท) *</label>
+                                    <input type="number" value={paymentForm.amount || ''} onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
+                                    <input type="date" value={paymentForm.paidDate} onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">อัพโหลด Slip</label>
+                                  <SlipUploader
+                                    values={paymentForm.slipUrls || []}
+                                    onChange={(urls) => setPaymentForm({ ...paymentForm, slipUrls: urls, slipUrl: urls[0] || '' })}
+                                    onPreview={(url) => setViewSlipUrl(url)}
+                                    color="indigo"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
+                                  <input type="text" value={paymentForm.note} onChange={(e) => setPaymentForm({ ...paymentForm, note: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="หมายเหตุเพิ่มเติม..." />
+                                </div>
                               </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">วันที่โอน</label>
-                                <input type="date" value={paymentForm.paidDate} onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                              <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
+                                <button onClick={() => { setShowPaymentForm(null); setEditingPaymentId(null); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
+                                <button onClick={() => handleSavePayment(project.id)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-blue-700 shadow">
+                                  <Save size={16} /> บันทึก
+                                </button>
                               </div>
-                              <div>
-                                <label className="block text-xs text-gray-500 mb-1">อัพโหลด Slip</label>
-                                <input type="file" accept="image/*" onChange={handleSlipUpload} className="w-full border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-indigo-50 file:text-indigo-700" />
-                                {paymentForm.slipUrl && <img src={paymentForm.slipUrl} alt="slip preview" className="mt-2 h-16 rounded border" />}
-                              </div>
-                            </div>
-                            <div className="mb-3">
-                              <label className="block text-xs text-gray-500 mb-1">หมายเหตุ</label>
-                              <input type="text" value={paymentForm.note} onChange={(e) => setPaymentForm({ ...paymentForm, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="หมายเหตุเพิ่มเติม..." />
-                            </div>
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => { setShowPaymentForm(null); setEditingPaymentId(null); }} className="px-3 py-1.5 text-xs text-gray-600">ยกเลิก</button>
-                              <button onClick={() => handleSavePayment(project.id)} className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">บันทึก</button>
                             </div>
                           </div>
                         )}
@@ -755,11 +822,17 @@ export default function ProjectsPage() {
                                       <div className="text-right">
                                         <p className="text-sm font-bold text-green-600">{formatCurrency(payment.amount)}</p>
                                       </div>
-                                      {payment.slipUrl && (
-                                        <button onClick={() => setViewSlipUrl(payment.slipUrl)} className="p-1 text-gray-400 hover:text-indigo-600" title="ดู Slip">
-                                          <Image size={16} />
-                                        </button>
-                                      )}
+                                      {(() => {
+                                        const slips = getSlips(payment);
+                                        return slips.length > 0 && (
+                                          <button onClick={() => { setViewSlips(slips); setViewSlipIndex(0); }} className="relative p-1 text-gray-400 hover:text-indigo-600" title={`ดู Slip (${slips.length} รูป)`}>
+                                            <Image size={16} />
+                                            {slips.length > 1 && (
+                                              <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{slips.length}</span>
+                                            )}
+                                          </button>
+                                        );
+                                      })()}
                                       <div className="flex gap-1">
                                         <button onClick={() => handleEditPayment(project.id, payment)} className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
                                         <button onClick={() => { if (confirm('ลบรายการโอนนี้?')) { deletePayment(payment.id); setTimeout(() => syncInstallmentStatus(project.id, payment.installmentId), 100); } }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
@@ -788,7 +861,7 @@ export default function ProjectsPage() {
                       <div className="p-5">
                         <div className="mb-4">
                           <h4 className="text-sm font-semibold text-gray-700 mb-1">สรุปการแบ่งเงินโครงการ</h4>
-                          <p className="text-xs text-gray-500">คำนวณจากค่าบริการกิจกรรม × % ส่วนแบ่งที่กำหนด (ผู้จัดการ {HORSE_PERCENT}% + กองกลาง {POOL_PERCENT}% หักอัตโนมัติ)</p>
+                          <p className="text-xs text-gray-500">คำนวณจากค่าบริการกิจกรรม × % ส่วนแบ่งที่กำหนด (ผู้จัดการ + กองกลาง ปรับ % รายกิจกรรมได้)</p>
                         </div>
 
                         {project.activities.length > 0 ? (
@@ -809,15 +882,15 @@ export default function ProjectsPage() {
 
                             const horseByActivity = project.activities.map((a) => ({
                               activityName: a.name,
-                              percent: HORSE_PERCENT,
-                              amount: (a.cost * HORSE_PERCENT) / 100,
+                              percent: getHorsePercent(a),
+                              amount: (a.cost * getHorsePercent(a)) / 100,
                             }));
                             const horseTotal = horseByActivity.reduce((s, a) => s + a.amount, 0);
 
                             const poolByActivity = project.activities.map((a) => ({
                               activityName: a.name,
-                              percent: POOL_PERCENT,
-                              amount: (a.cost * POOL_PERCENT) / 100,
+                              percent: getPoolPercent(a),
+                              amount: (a.cost * getPoolPercent(a)) / 100,
                             }));
                             const poolTotal = poolByActivity.reduce((s, a) => s + a.amount, 0);
 
@@ -836,7 +909,7 @@ export default function ProjectsPage() {
                                     <div className="bg-white rounded-lg border p-4">
                                       <div className="flex items-center justify-between mb-3">
                                         <h5 className="text-sm font-semibold text-gray-700">สรุปส่วนแบ่ง (จากเงินที่รับมาแล้ว {formatCurrency(totalPaidReal)})</h5>
-                                        <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>
+                                        <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>
                                       </div>
                                       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                         {memberShares.map((m) => {
@@ -944,12 +1017,12 @@ export default function ProjectsPage() {
                                             </td>
                                           ))}
                                           <td className="px-3 py-2 text-center">
-                                            <span className="text-gray-500 text-xs">{HORSE_PERCENT}%</span><br />
-                                            <span className="font-medium text-amber-600">{formatCurrency((a.cost * HORSE_PERCENT) / 100)}</span>
+                                            <span className="text-gray-500 text-xs">{getHorsePercent(a)}%</span><br />
+                                            <span className="font-medium text-amber-600">{formatCurrency((a.cost * getHorsePercent(a)) / 100)}</span>
                                           </td>
                                           <td className="px-3 py-2 text-center">
-                                            <span className="text-gray-500 text-xs">{POOL_PERCENT}%</span><br />
-                                            <span className="font-medium text-gray-500">{formatCurrency((a.cost * POOL_PERCENT) / 100)}</span>
+                                            <span className="text-gray-500 text-xs">{getPoolPercent(a)}%</span><br />
+                                            <span className="font-medium text-gray-500">{formatCurrency((a.cost * getPoolPercent(a)) / 100)}</span>
                                           </td>
                                         </tr>
                                       ))}
@@ -1015,44 +1088,63 @@ export default function ProjectsPage() {
                                 <div className="bg-white rounded-lg border p-4">
                                   <div className="flex items-center justify-between mb-3">
                                     <h5 className="text-sm font-semibold text-gray-700">บันทึกการโอนเงินให้สมาชิก</h5>
-                                    <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"><Plus size={14} /> เพิ่มรายการโอน</button>
+                                    <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"><Plus size={14} /> เพิ่มรายการโอน</button>
                                   </div>
 
                                   {showDistForm === project.id && (
-                                    <div className="bg-gray-50 rounded-lg border p-4 mb-3">
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                                        <div>
-                                          <label className="block text-xs text-gray-500 mb-1">ผู้รับเงิน *</label>
-                                          <select value={distForm.recipientId} onChange={(e) => setDistForm({ ...distForm, recipientId: e.target.value as RecipientId })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500">
-                                            <option value="">-- เลือกผู้รับเงิน --</option>
-                                            {MEMBERS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                            <option value="horse">ผู้จัดการ</option>
-                                            <option value="pool">กองกลาง</option>
-                                          </select>
+                                    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowDistForm(null)}>
+                                      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                                        <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-xl">
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow">
+                                              <Banknote size={18} className="text-white" />
+                                            </div>
+                                            <h2 className="font-semibold text-gray-900">เพิ่มรายการโอนเงินให้สมาชิก</h2>
+                                          </div>
+                                          <button onClick={() => setShowDistForm(null)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-white/60">
+                                            <X size={18} />
+                                          </button>
                                         </div>
-                                        <div>
-                                          <label className="block text-xs text-gray-500 mb-1">จำนวนเงิน (บาท) *</label>
-                                          <input type="number" value={distForm.amount || ''} onChange={(e) => setDistForm({ ...distForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="0" />
+                                        <div className="p-5 space-y-4">
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">ผู้รับเงิน *</label>
+                                            <select value={distForm.recipientId} onChange={(e) => setDistForm({ ...distForm, recipientId: e.target.value as RecipientId })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500">
+                                              <option value="">-- เลือกผู้รับเงิน --</option>
+                                              {MEMBERS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                              <option value="horse">ผู้จัดการ</option>
+                                              <option value="pool">กองกลาง</option>
+                                            </select>
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                              <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท) *</label>
+                                              <input type="number" value={distForm.amount || ''} onChange={(e) => setDistForm({ ...distForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="0" />
+                                            </div>
+                                            <div>
+                                              <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
+                                              <input type="date" value={distForm.paidDate} onChange={(e) => setDistForm({ ...distForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" />
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">อัพโหลด Slip</label>
+                                            <SlipUploader
+                                              values={distForm.slipUrls || []}
+                                              onChange={(urls) => setDistForm({ ...distForm, slipUrls: urls, slipUrl: urls[0] || '' })}
+                                              onPreview={(url) => setViewSlipUrl(url)}
+                                              color="green"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
+                                            <input type="text" value={distForm.note} onChange={(e) => setDistForm({ ...distForm, note: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="หมายเหตุเพิ่มเติม..." />
+                                          </div>
                                         </div>
-                                        <div>
-                                          <label className="block text-xs text-gray-500 mb-1">วันที่โอน</label>
-                                          <input type="date" value={distForm.paidDate} onChange={(e) => setDistForm({ ...distForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500" />
+                                        <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
+                                          <button onClick={() => setShowDistForm(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
+                                          <button onClick={() => handleSaveDistribution(project.id)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 shadow">
+                                            <Save size={16} /> บันทึก
+                                          </button>
                                         </div>
-                                      </div>
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                                        <div>
-                                          <label className="block text-xs text-gray-500 mb-1">อัพโหลด Slip</label>
-                                          <input type="file" accept="image/*" onChange={handleDistSlipUpload} className="w-full border rounded-lg px-3 py-1.5 text-sm outline-none file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-green-50 file:text-green-700" />
-                                          {distForm.slipUrl && <img src={distForm.slipUrl} alt="slip" className="mt-2 h-16 rounded border" />}
-                                        </div>
-                                        <div>
-                                          <label className="block text-xs text-gray-500 mb-1">หมายเหตุ</label>
-                                          <input type="text" value={distForm.note} onChange={(e) => setDistForm({ ...distForm, note: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="หมายเหตุ..." />
-                                        </div>
-                                      </div>
-                                      <div className="flex justify-end gap-2">
-                                        <button onClick={() => setShowDistForm(null)} className="px-3 py-1.5 text-xs text-gray-600">ยกเลิก</button>
-                                        <button onClick={() => handleSaveDistribution(project.id)} className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700">บันทึก</button>
                                       </div>
                                     </div>
                                   )}
@@ -1081,9 +1173,17 @@ export default function ProjectsPage() {
                                             </div>
                                             <div className="flex items-center gap-3">
                                               <p className="text-sm font-bold text-green-600">{formatCurrency(dist.amount)}</p>
-                                              {dist.slipUrl && (
-                                                <button onClick={() => setViewSlipUrl(dist.slipUrl)} className="p-1 text-gray-400 hover:text-indigo-600" title="ดู Slip"><Image size={16} /></button>
-                                              )}
+                                              {(() => {
+                                                const slips = getSlips(dist);
+                                                return slips.length > 0 && (
+                                                  <button onClick={() => { setViewSlips(slips); setViewSlipIndex(0); }} className="relative p-1 text-gray-400 hover:text-indigo-600" title={`ดู Slip (${slips.length} รูป)`}>
+                                                    <Image size={16} />
+                                                    {slips.length > 1 && (
+                                                      <span className="absolute -top-1 -right-1 bg-green-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{slips.length}</span>
+                                                    )}
+                                                  </button>
+                                                );
+                                              })()}
                                               <button onClick={() => { if (confirm('ลบรายการนี้?')) deleteDistribution(dist.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
                                             </div>
                                           </div>
@@ -1128,7 +1228,7 @@ export default function ProjectsPage() {
                     )}
                 </div>
 
-                {/* Slip viewer modal */}
+                {/* Slip viewer modal (single slip) */}
                 {viewSlipUrl && (
                   <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setViewSlipUrl(null)}>
                     <div className="bg-white rounded-xl shadow-xl max-w-lg max-h-[80vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
@@ -1136,7 +1236,68 @@ export default function ProjectsPage() {
                         <h3 className="font-semibold text-gray-900">Slip การชำระเงิน</h3>
                         <button onClick={() => setViewSlipUrl(null)}><X size={18} className="text-gray-400" /></button>
                       </div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={viewSlipUrl} alt="Payment slip" className="w-full rounded-lg" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Multi-slip viewer modal with navigation */}
+                {viewSlips && viewSlips.length > 0 && (
+                  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewSlips(null)}>
+                    <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-between items-center p-4 border-b border-gray-100">
+                        <h3 className="font-semibold text-gray-900">
+                          Slip {viewSlipIndex + 1} / {viewSlips.length}
+                        </h3>
+                        <button onClick={() => setViewSlips(null)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100">
+                          <X size={18} />
+                        </button>
+                      </div>
+
+                      {/* Main image with prev/next buttons */}
+                      <div className="relative bg-gray-50 p-4">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={viewSlips[viewSlipIndex]} alt={`Slip ${viewSlipIndex + 1}`} className="w-full max-h-[60vh] object-contain rounded-lg" />
+
+                        {viewSlips.length > 1 && (
+                          <>
+                            <button
+                              onClick={() => setViewSlipIndex((i) => (i - 1 + viewSlips.length) % viewSlips.length)}
+                              className="absolute left-6 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 hover:bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700"
+                              title="ก่อนหน้า"
+                            >
+                              <ChevronLeft size={20} />
+                            </button>
+                            <button
+                              onClick={() => setViewSlipIndex((i) => (i + 1) % viewSlips.length)}
+                              className="absolute right-6 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 hover:bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700"
+                              title="ถัดไป"
+                            >
+                              <ChevronRight size={20} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Thumbnails */}
+                      {viewSlips.length > 1 && (
+                        <div className="p-4 border-t border-gray-100">
+                          <div className="flex gap-2 overflow-x-auto">
+                            {viewSlips.map((slip, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setViewSlipIndex(i)}
+                                className={`relative shrink-0 rounded-lg overflow-hidden border-2 transition-all ${i === viewSlipIndex ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200 hover:border-gray-300 opacity-70 hover:opacity-100'}`}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={slip} alt={`thumb ${i + 1}`} className="w-16 h-16 object-cover" />
+                                <div className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[10px] rounded px-1">{i + 1}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

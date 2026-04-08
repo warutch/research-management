@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Project, Quotation, Activity, MemberId, PaymentInstallment, PaymentRecord, DistributionRecord, HORSE_PERCENT, POOL_PERCENT } from '@/types';
+import { Project, Quotation, Activity, MemberId, PaymentInstallment, PaymentRecord, DistributionRecord, TrackingActivity, HORSE_PERCENT, POOL_PERCENT } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
 import {
@@ -7,6 +7,7 @@ import {
   paymentToDb, paymentFromDb,
   distributionToDb, distributionFromDb,
   quotationToDb, quotationFromDb,
+  trackingActivityToDb, trackingActivityFromDb,
 } from '@/lib/supabaseSync';
 
 interface AppState {
@@ -14,6 +15,7 @@ interface AppState {
   quotations: Quotation[];
   payments: PaymentRecord[];
   distributions: DistributionRecord[];
+  trackingActivities: TrackingActivity[];
   dataLoaded: boolean;
 
   loadAllData: () => Promise<void>;
@@ -49,6 +51,11 @@ interface AppState {
   updateQuotation: (id: string, data: Partial<Quotation>) => void;
   deleteQuotation: (id: string) => void;
 
+  // Tracking Activities
+  addTrackingActivity: (activity: Omit<TrackingActivity, 'id' | 'createdAt'>) => string;
+  updateTrackingActivity: (id: string, data: Partial<TrackingActivity>) => void;
+  deleteTrackingActivity: (id: string) => void;
+
   // Migration helper
   migrateFromLocalStorage: () => Promise<{ projects: number; payments: number; distributions: number; quotations: number }>;
 }
@@ -66,9 +73,40 @@ export function calcPoolIncome(activity: Activity): number {
   return (activity.cost * POOL_PERCENT) / 100;
 }
 
-// Helper: log Supabase errors
+// Helper: log Supabase errors (extract all properties)
 function logErr(action: string, error: unknown) {
-  if (error) console.error(`[Supabase] ${action} error:`, error);
+  if (!error) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = error as any;
+
+  // Extract all enumerable + own properties
+  const errorInfo: Record<string, unknown> = {};
+  if (e instanceof Error) {
+    errorInfo.name = e.name;
+    errorInfo.message = e.message;
+    errorInfo.stack = e.stack;
+  }
+  // Supabase PostgrestError fields
+  if (e?.message) errorInfo.message = e.message;
+  if (e?.code) errorInfo.code = e.code;
+  if (e?.details) errorInfo.details = e.details;
+  if (e?.hint) errorInfo.hint = e.hint;
+  if (e?.status) errorInfo.status = e.status;
+  if (e?.statusText) errorInfo.statusText = e.statusText;
+
+  // Get all own property keys
+  try {
+    const keys = Object.getOwnPropertyNames(e);
+    keys.forEach((k) => {
+      if (!(k in errorInfo)) errorInfo[k] = e[k];
+    });
+  } catch {}
+
+  console.error(`[Supabase] ${action} error:`);
+  console.error('  Type:', typeof e, e?.constructor?.name);
+  console.error('  Info:', errorInfo);
+  console.error('  Raw:', e);
+  console.error('  JSON:', JSON.stringify(e, Object.getOwnPropertyNames(e || {})));
 }
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -76,27 +114,31 @@ export const useStore = create<AppState>()((set, get) => ({
   quotations: [],
   payments: [],
   distributions: [],
+  trackingActivities: [],
   dataLoaded: false,
 
   loadAllData: async () => {
     try {
-      const [projectsRes, paymentsRes, distributionsRes, quotationsRes] = await Promise.all([
+      const [projectsRes, paymentsRes, distributionsRes, quotationsRes, trackingRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
         supabase.from('payments').select('*'),
         supabase.from('distributions').select('*'),
         supabase.from('quotations').select('*'),
+        supabase.from('tracking_activities').select('*'),
       ]);
 
       logErr('load projects', projectsRes.error);
       logErr('load payments', paymentsRes.error);
       logErr('load distributions', distributionsRes.error);
       logErr('load quotations', quotationsRes.error);
+      logErr('load tracking', trackingRes.error);
 
       set({
         projects: (projectsRes.data || []).map(projectFromDb),
         payments: (paymentsRes.data || []).map(paymentFromDb),
         distributions: (distributionsRes.data || []).map(distributionFromDb),
         quotations: (quotationsRes.data || []).map(quotationFromDb),
+        trackingActivities: (trackingRes.data || []).map(trackingActivityFromDb),
         dataLoaded: true,
       });
     } catch (e) {
@@ -106,7 +148,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   resetStore: () => {
-    set({ projects: [], quotations: [], payments: [], distributions: [], dataLoaded: false });
+    set({ projects: [], quotations: [], payments: [], distributions: [], trackingActivities: [], dataLoaded: false });
   },
 
   // ============ Projects ============
@@ -261,6 +303,28 @@ export const useStore = create<AppState>()((set, get) => ({
   deleteQuotation: (id) => {
     set((state) => ({ quotations: state.quotations.filter((q) => q.id !== id) }));
     supabase.from('quotations').delete().eq('id', id).then(({ error }) => logErr('deleteQuotation', error));
+  },
+
+  // ============ Tracking Activities ============
+  addTrackingActivity: (activityData) => {
+    const id = uuidv4();
+    const activity: TrackingActivity = { ...activityData, id, createdAt: new Date().toISOString() };
+    set((state) => ({ trackingActivities: [...state.trackingActivities, activity] }));
+    supabase.from('tracking_activities').insert(trackingActivityToDb(activity)).then(({ error }) => logErr('addTrackingActivity', error));
+    return id;
+  },
+
+  updateTrackingActivity: (id, data) => {
+    set((state) => ({
+      trackingActivities: state.trackingActivities.map((t) => (t.id === id ? { ...t, ...data } : t)),
+    }));
+    const updated = get().trackingActivities.find((t) => t.id === id);
+    if (updated) supabase.from('tracking_activities').update(trackingActivityToDb(updated)).eq('id', id).then(({ error }) => logErr('updateTrackingActivity', error));
+  },
+
+  deleteTrackingActivity: (id) => {
+    set((state) => ({ trackingActivities: state.trackingActivities.filter((t) => t.id !== id) }));
+    supabase.from('tracking_activities').delete().eq('id', id).then(({ error }) => logErr('deleteTrackingActivity', error));
   },
 
   // ============ Migration: LocalStorage → Supabase ============

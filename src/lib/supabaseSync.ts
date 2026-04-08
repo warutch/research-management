@@ -1,4 +1,4 @@
-import { Project, Quotation, PaymentRecord, DistributionRecord } from '@/types';
+import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId } from '@/types';
 
 // ================================================================
 // Helpers แปลงข้อมูลระหว่าง camelCase (TypeScript) ↔ snake_case (DB)
@@ -49,6 +49,7 @@ export function paymentToDb(p: PaymentRecord): any {
     amount: p.amount,
     paid_date: p.paidDate,
     slip_url: p.slipUrl,
+    slip_urls: p.slipUrls || [],
     note: p.note,
     created_at: p.createdAt,
   };
@@ -63,6 +64,7 @@ export function paymentFromDb(row: any): PaymentRecord {
     amount: Number(row.amount) || 0,
     paidDate: row.paid_date || '',
     slipUrl: row.slip_url || '',
+    slipUrls: row.slip_urls || [],
     note: row.note || '',
     createdAt: row.created_at || new Date().toISOString(),
   };
@@ -78,6 +80,7 @@ export function distributionToDb(d: DistributionRecord): any {
     amount: d.amount,
     paid_date: d.paidDate,
     slip_url: d.slipUrl,
+    slip_urls: d.slipUrls || [],
     note: d.note,
     created_at: d.createdAt,
   };
@@ -92,6 +95,7 @@ export function distributionFromDb(row: any): DistributionRecord {
     amount: Number(row.amount) || 0,
     paidDate: row.paid_date || '',
     slipUrl: row.slip_url || '',
+    slipUrls: row.slip_urls || [],
     note: row.note || '',
     createdAt: row.created_at || new Date().toISOString(),
   };
@@ -130,6 +134,39 @@ export function quotationFromDb(row: any): Quotation {
     validUntil: row.valid_until || '',
     notes: row.notes || '',
     discount: Number(row.discount) || 0,
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+// --- Tracking Activity ---
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function trackingActivityToDb(t: TrackingActivity): any {
+  return {
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    project_id: t.projectId,
+    assignee_id: t.assigneeId,
+    start_date: t.startDate,
+    deadline: t.deadline,
+    status: t.status,
+    priority: t.priority,
+    created_at: t.createdAt,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function trackingActivityFromDb(row: any): TrackingActivity {
+  return {
+    id: row.id,
+    title: row.title || '',
+    description: row.description || '',
+    projectId: row.project_id || '',
+    assigneeId: (row.assignee_id || '') as MemberId | '',
+    startDate: row.start_date || '',
+    deadline: row.deadline || '',
+    status: (row.status || 'todo') as TrackingStatus,
+    priority: (row.priority || 'medium') as TrackingPriority,
     createdAt: row.created_at || new Date().toISOString(),
   };
 }
