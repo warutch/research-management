@@ -148,14 +148,14 @@ export default function DashboardPage() {
       color: m.color,
     })),
     {
-      name: 'ผจก',
+      name: 'MG',
       actual: horseActual,
       remaining: Math.max(0, horseExpected - horseActual),
       total: horseExpected,
       color: '#f59e0b',
     },
     {
-      name: 'กก',
+      name: 'PM',
       actual: poolActual,
       remaining: Math.max(0, poolExpected - poolActual),
       total: poolExpected,
@@ -637,7 +637,7 @@ export default function DashboardPage() {
 
       {/* Project Edit Modal */}
       {editingProject && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditingProject(null)}>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-t-xl">
               <div className="flex items-center gap-2">

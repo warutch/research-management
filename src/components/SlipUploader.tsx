@@ -132,7 +132,7 @@ export default function SlipUploader({ values, onChange, onPreview, color = 'ind
 
       {/* Internal preview modal */}
       {internalPreview && (
-        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setInternalPreview(null)}>
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-3xl max-h-[90vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-3">
               <h3 className="font-semibold text-gray-900">Slip การโอนเงิน</h3>

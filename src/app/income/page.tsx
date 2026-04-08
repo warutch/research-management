@@ -93,7 +93,7 @@ export default function IncomePage() {
     return { ...member, expectedIncome, actualIncome, projectBreakdown };
   });
 
-  // ผู้จัดการ + กองกลาง
+  // Manager + Pool money
   const horseExpected = filteredProjects.reduce((total, project) => {
     return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * getHorsePercent(activity)) / 100, 0);
   }, 0);
@@ -125,14 +125,14 @@ export default function IncomePage() {
       color: m.color,
     })),
     {
-      name: 'ผู้จัดการ',
+      name: 'Manager',
       actual: horseActual,
       remaining: Math.max(0, horseExpected - horseActual),
       total: horseExpected,
       color: '#f59e0b',
     },
     {
-      name: 'กองกลาง',
+      name: 'Pool money',
       actual: poolActual,
       remaining: Math.max(0, poolExpected - poolActual),
       total: poolExpected,
@@ -145,7 +145,7 @@ export default function IncomePage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">รายได้</h1>
-          <p className="text-gray-500 text-sm mt-1">รายรับจริงที่ชำระแล้ว กับรายรับที่คาดว่าจะได้ (หักผู้จัดการ + กองกลาง รายกิจกรรม)</p>
+          <p className="text-gray-500 text-sm mt-1">รายรับจริงที่ชำระแล้ว กับรายรับที่คาดว่าจะได้ (หักManager + Pool money รายกิจกรรม)</p>
         </div>
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-gray-400" />
@@ -198,7 +198,7 @@ export default function IncomePage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-amber-900">ผู้จัดการ</p>
+            <p className="font-medium text-amber-900">Manager</p>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-amber-700">รับจริง: <strong className="text-green-600">{formatCurrency(horseActual)}</strong></span>
@@ -207,7 +207,7 @@ export default function IncomePage() {
         </div>
         <div className="bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-gray-900">กองกลาง</p>
+            <p className="font-medium text-gray-900">Pool money</p>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-700">รับจริง: <strong className="text-green-600">{formatCurrency(poolActual)}</strong></span>
@@ -323,7 +323,7 @@ export default function IncomePage() {
         </div>
       ))}
 
-      {/* ผู้จัดการ Breakdown */}
+      {/* Manager Breakdown */}
       {(() => {
         const horseBreakdown = filteredProjects.map((project) => {
           const expected = project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0);
@@ -341,9 +341,9 @@ export default function IncomePage() {
         return (
           <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
             <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-white flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs bg-amber-500">ผจก</div>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs bg-amber-500">MG</div>
               <div>
-                <h3 className="font-semibold text-gray-900">ผู้จัดการ</h3>
+                <h3 className="font-semibold text-gray-900">Manager</h3>
                 <p className="text-xs text-gray-500">หักอัตโนมัติจากทุกกิจกรรม</p>
               </div>
               <div className="ml-auto text-right">
@@ -400,7 +400,7 @@ export default function IncomePage() {
         );
       })()}
 
-      {/* กองกลาง Breakdown */}
+      {/* Pool money Breakdown */}
       {(() => {
         const poolBreakdown = filteredProjects.map((project) => {
           const expected = project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0);
@@ -418,9 +418,9 @@ export default function IncomePage() {
         return (
           <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
             <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs bg-gray-500">กก</div>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs bg-gray-500">PM</div>
               <div>
-                <h3 className="font-semibold text-gray-900">กองกลาง</h3>
+                <h3 className="font-semibold text-gray-900">Pool money</h3>
                 <p className="text-xs text-gray-500">หักอัตโนมัติจากทุกกิจกรรม</p>
               </div>
               <div className="ml-auto text-right">
@@ -479,7 +479,7 @@ export default function IncomePage() {
 
       {/* Distribution Modal — เพิ่มการโอนเงินให้สมาชิก */}
       {distModal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDistModal(null)}>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-xl">
               <div className="flex items-center gap-2">
@@ -555,7 +555,7 @@ export default function IncomePage() {
 
       {/* Slip viewer */}
       {viewSlipUrl && (
-        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setViewSlipUrl(null)}>
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl max-h-[90vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-3">
               <h3 className="font-semibold text-gray-900">Slip</h3>

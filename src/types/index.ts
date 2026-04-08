@@ -9,28 +9,28 @@ export interface Member {
 }
 
 export const MEMBERS: Member[] = [
-  { id: 'tangmo', name: 'อ.แตงโม', shortName: 'ตม', role: 'ตรวจสอบ Content / เขียนโครงร่างวิจัย', color: '#8b5cf6' },
-  { id: 'frank', name: 'แฟรงค์', shortName: 'ฟ', role: 'วิเคราะห์ผลการวิจัย', color: '#3b82f6' },
-  { id: 'ton', name: 'ต้น', shortName: 'ต', role: 'ประสานงานโครงการ', color: '#10b981' },
+  { id: 'tangmo', name: 'Specialist', shortName: 'SP', role: 'ตรวจสอบ Content / เขียนโครงร่างวิจัย', color: '#8b5cf6' },
+  { id: 'frank', name: 'Analyst', shortName: 'AN', role: 'วิเคราะห์ผลการวิจัย', color: '#3b82f6' },
+  { id: 'ton', name: 'Coordinator', shortName: 'CO', role: 'ประสานงานโครงการ', color: '#10b981' },
 ];
 
-// ชื่อที่แสดงในระบบ (รวม ผู้จัดการ กองกลาง)
+// ชื่อที่แสดงในระบบ (รวม Manager + Pool money)
 export type ShareId = MemberId | 'horse' | 'pool';
 
 export const ALL_SHARE_NAMES: Record<ShareId, string> = {
-  tangmo: 'อ.แตงโม',
-  frank: 'แฟรงค์',
-  ton: 'ต้น',
-  horse: 'ผู้จัดการ',
-  pool: 'กองกลาง',
+  tangmo: 'Specialist',
+  frank: 'Analyst',
+  ton: 'Coordinator',
+  horse: 'Manager',
+  pool: 'Pool money',
 };
 
 export const ALL_SHORT_NAMES: Record<ShareId, string> = {
-  tangmo: 'ตม',
-  frank: 'ฟ',
-  ton: 'ต',
-  horse: 'ผจก',
-  pool: 'กก',
+  tangmo: 'SP',
+  frank: 'AN',
+  ton: 'CO',
+  horse: 'MG',
+  pool: 'PM',
 };
 
 // กิจกรรมมาตรฐานของโครงการวิจัย

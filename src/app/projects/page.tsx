@@ -138,7 +138,7 @@ export default function ProjectsPage() {
     const horseP = activityForm.horsePercent ?? HORSE_PERCENT;
     const poolP = activityForm.poolPercent ?? POOL_PERCENT;
     if (totalShare + horseP + poolP > 100) {
-      alert(`ส่วนแบ่งรวมต้องไม่เกิน 100%\nผู้ก่อตั้ง ${totalShare}% + ผู้จัดการ ${horseP}% + กองกลาง ${poolP}% = ${totalShare + horseP + poolP}%`);
+      alert(`ส่วนแบ่งรวมต้องไม่เกิน 100%\nผู้ก่อตั้ง ${totalShare}% + Manager ${horseP}% + Pool money ${poolP}% = ${totalShare + horseP + poolP}%`);
       return;
     }
     if (editingActivityId) updateActivity(projectId, editingActivityId, activityForm);
@@ -454,12 +454,12 @@ export default function ProjectsPage() {
                   {activeTab === 'activities' && (
                       <div className="p-5">
                         <div className="flex items-center justify-between mb-4">
-                          <p className="text-xs text-gray-500">* หักผู้จัดการ + กองกลาง (ปรับ % รายกิจกรรมได้)</p>
+                          <p className="text-xs text-gray-500">* หักManager + Pool money (ปรับ % รายกิจกรรมได้)</p>
                           <button onClick={() => { setShowActivityForm(project.id); setActivityForm(emptyActivity()); setEditingActivityId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มกิจกรรม</button>
                         </div>
 
                         {showActivityForm === project.id && (
-                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowActivityForm(null); setEditingActivityId(null); }}>
+                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50 rounded-t-xl">
                                 <div className="flex items-center gap-2">
@@ -495,7 +495,7 @@ export default function ProjectsPage() {
                                     const grandTotal = founderTotal + horseP + poolP;
                                     return (
                                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        ส่วนแบ่งทั้งหมด — ผู้ก่อตั้ง <strong>{founderTotal}%</strong> + ผู้จัดการ <strong>{horseP}%</strong> + กองกลาง <strong>{poolP}%</strong> = <strong className={grandTotal > 100 ? 'text-red-600' : grandTotal === 100 ? 'text-green-600' : ''}>{grandTotal}%</strong>
+                                        ส่วนแบ่งทั้งหมด — ผู้ก่อตั้ง <strong>{founderTotal}%</strong> + Manager <strong>{horseP}%</strong> + Pool money <strong>{poolP}%</strong> = <strong className={grandTotal > 100 ? 'text-red-600' : grandTotal === 100 ? 'text-green-600' : ''}>{grandTotal}%</strong>
                                       </label>
                                     );
                                   })()}
@@ -509,11 +509,11 @@ export default function ProjectsPage() {
                                   </div>
                                   <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                      <label className="block text-xs text-gray-600 mb-1 font-medium">ผู้จัดการ (%)</label>
+                                      <label className="block text-xs text-gray-600 mb-1 font-medium">Manager (%)</label>
                                       <input type="number" min={0} max={100} step="0.1" value={activityForm.horsePercent ?? HORSE_PERCENT} onChange={(e) => setActivityForm({ ...activityForm, horsePercent: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-amber-50" placeholder="2.5" />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-gray-600 mb-1 font-medium">กองกลาง (%)</label>
+                                      <label className="block text-xs text-gray-600 mb-1 font-medium">Pool money (%)</label>
                                       <input type="number" min={0} max={100} step="0.1" value={activityForm.poolPercent ?? POOL_PERCENT} onChange={(e) => setActivityForm({ ...activityForm, poolPercent: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50" placeholder="2.5" />
                                     </div>
                                   </div>
@@ -537,8 +537,8 @@ export default function ProjectsPage() {
                                   <th className="pb-2 font-medium">กิจกรรม</th>
                                   <th className="pb-2 font-medium text-right">ค่าบริการ</th>
                                   {MEMBERS.map((m) => <th key={m.id} className="pb-2 font-medium text-center">{m.name}</th>)}
-                                  <th className="pb-2 font-medium text-center">ผู้จัดการ</th>
-                                  <th className="pb-2 font-medium text-center">กองกลาง</th>
+                                  <th className="pb-2 font-medium text-center">Manager</th>
+                                  <th className="pb-2 font-medium text-center">Pool money</th>
                                   <th className="pb-2 font-medium text-center">สถานะ</th>
                                   <th className="pb-2 font-medium text-right">จัดการ</th>
                                 </tr>
@@ -610,7 +610,7 @@ export default function ProjectsPage() {
                         </div>
 
                         {showInstallmentForm === project.id && (
-                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowInstallmentForm(null); setEditingInstallmentId(null); }}>
+                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-t-xl">
                                 <div className="flex items-center gap-2">
@@ -741,7 +741,7 @@ export default function ProjectsPage() {
                         </div>
 
                         {showPaymentForm === project.id && (
-                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowPaymentForm(null); setEditingPaymentId(null); }}>
+                          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-xl">
                                 <div className="flex items-center gap-2">
@@ -871,7 +871,7 @@ export default function ProjectsPage() {
                       <div className="p-5">
                         <div className="mb-4">
                           <h4 className="text-sm font-semibold text-gray-700 mb-1">สรุปการแบ่งเงินโครงการ</h4>
-                          <p className="text-xs text-gray-500">คำนวณจากค่าบริการกิจกรรม × % ส่วนแบ่งที่กำหนด (ผู้จัดการ + กองกลาง ปรับ % รายกิจกรรมได้)</p>
+                          <p className="text-xs text-gray-500">คำนวณจากค่าบริการกิจกรรม × % ส่วนแบ่งที่กำหนด (Manager + Pool money ปรับ % รายกิจกรรมได้)</p>
                         </div>
 
                         {project.activities.length > 0 ? (
@@ -947,7 +947,7 @@ export default function ProjectsPage() {
                                             </div>
                                           );
                                         })}
-                                        {/* ผู้จัดการ */}
+                                        {/* Manager */}
                                         {(() => {
                                           const hPaid = distPaid('horse');
                                           const hShouldPay = horseTotal * paidRatio;
@@ -955,8 +955,8 @@ export default function ProjectsPage() {
                                           const hFull = hPaid >= horseTotal && horseTotal > 0;
                                           return (
                                             <div className={`rounded-lg border p-3 text-center ${hFull ? 'bg-green-50 border-green-200' : 'border-amber-200 bg-amber-50'}`}>
-                                              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center bg-amber-500 text-white font-bold text-sm">ผจก</div>
-                                              <p className="text-sm text-gray-700 font-medium">ผู้จัดการ</p>
+                                              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center bg-amber-500 text-white font-bold text-sm">MG</div>
+                                              <p className="text-sm text-gray-700 font-medium">Manager</p>
                                               <p className="text-lg font-bold text-amber-600 mt-1">{formatCurrency(horseTotal)}</p>
                                               <p className="text-xs text-gray-400">ส่วนแบ่งทั้งโครงการ</p>
                                               {hPaid > 0 && <p className="text-xs text-green-600 mt-1">โอนแล้ว: {formatCurrency(hPaid)}</p>}
@@ -969,7 +969,7 @@ export default function ProjectsPage() {
                                             </div>
                                           );
                                         })()}
-                                        {/* กองกลาง */}
+                                        {/* Pool money */}
                                         {(() => {
                                           const pPaid = distPaid('pool');
                                           const pShouldPay = poolTotal * paidRatio;
@@ -977,8 +977,8 @@ export default function ProjectsPage() {
                                           const pFull = pPaid >= poolTotal && poolTotal > 0;
                                           return (
                                             <div className={`rounded-lg border p-3 text-center ${pFull ? 'bg-green-50 border-green-200' : 'border-gray-200 bg-gray-50'}`}>
-                                              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center bg-gray-500 text-white font-bold text-sm">กก</div>
-                                              <p className="text-sm text-gray-700 font-medium">กองกลาง</p>
+                                              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center bg-gray-500 text-white font-bold text-sm">PM</div>
+                                              <p className="text-sm text-gray-700 font-medium">Pool money</p>
                                               <p className="text-lg font-bold text-gray-600 mt-1">{formatCurrency(poolTotal)}</p>
                                               <p className="text-xs text-gray-400">ส่วนแบ่งทั้งโครงการ</p>
                                               {pPaid > 0 && <p className="text-xs text-green-600 mt-1">โอนแล้ว: {formatCurrency(pPaid)}</p>}
@@ -1010,8 +1010,8 @@ export default function ProjectsPage() {
                                         <th className="px-3 py-2 font-medium">กิจกรรม</th>
                                         <th className="px-3 py-2 font-medium text-right">ค่าบริการ</th>
                                         {MEMBERS.map((m) => <th key={m.id} className="px-3 py-2 font-medium text-center">{m.name}</th>)}
-                                        <th className="px-3 py-2 font-medium text-center">ผู้จัดการ</th>
-                                        <th className="px-3 py-2 font-medium text-center">กองกลาง</th>
+                                        <th className="px-3 py-2 font-medium text-center">Manager</th>
+                                        <th className="px-3 py-2 font-medium text-center">Pool money</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -1058,8 +1058,8 @@ export default function ProjectsPage() {
                                           <th className="px-3 py-2 font-medium text-right">จำนวนเงิน</th>
                                           <th className="px-3 py-2 font-medium text-right">รับแล้ว</th>
                                           {MEMBERS.map((m) => <th key={m.id} className="px-3 py-2 font-medium text-center">{m.name}</th>)}
-                                          <th className="px-3 py-2 font-medium text-center">ผู้จัดการ</th>
-                                          <th className="px-3 py-2 font-medium text-center">กองกลาง</th>
+                                          <th className="px-3 py-2 font-medium text-center">Manager</th>
+                                          <th className="px-3 py-2 font-medium text-center">Pool money</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -1102,7 +1102,7 @@ export default function ProjectsPage() {
                                   </div>
 
                                   {showDistForm === project.id && (
-                                    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowDistForm(null)}>
+                                    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
                                       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
                                         <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-xl">
                                           <div className="flex items-center gap-2">
@@ -1121,8 +1121,8 @@ export default function ProjectsPage() {
                                             <select value={distForm.recipientId} onChange={(e) => setDistForm({ ...distForm, recipientId: e.target.value as RecipientId })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500">
                                               <option value="">-- เลือกผู้รับเงิน --</option>
                                               {MEMBERS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                              <option value="horse">ผู้จัดการ</option>
-                                              <option value="pool">กองกลาง</option>
+                                              <option value="horse">Manager</option>
+                                              <option value="pool">Pool money</option>
                                             </select>
                                           </div>
                                           <div className="grid grid-cols-2 gap-3">
@@ -1213,11 +1213,11 @@ export default function ProjectsPage() {
                                               );
                                             })}
                                             <div className="flex justify-between bg-white rounded px-2 py-1">
-                                              <span>ผู้จัดการ</span>
+                                              <span>Manager</span>
                                               <span className={distByRecipient('horse') >= horseTotal && horseTotal > 0 ? 'text-green-600 font-medium' : ''}>{formatCurrency(distByRecipient('horse'))}/{formatCurrency(horseTotal)}</span>
                                             </div>
                                             <div className="flex justify-between bg-white rounded px-2 py-1">
-                                              <span>กองกลาง</span>
+                                              <span>Pool money</span>
                                               <span className={distByRecipient('pool') >= poolTotal && poolTotal > 0 ? 'text-green-600 font-medium' : ''}>{formatCurrency(distByRecipient('pool'))}/{formatCurrency(poolTotal)}</span>
                                             </div>
                                           </div>
@@ -1240,7 +1240,7 @@ export default function ProjectsPage() {
 
                 {/* Slip viewer modal (single slip) */}
                 {viewSlipUrl && (
-                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setViewSlipUrl(null)}>
+                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-lg max-h-[80vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-between items-center mb-3">
                         <h3 className="font-semibold text-gray-900">Slip การชำระเงิน</h3>
@@ -1254,7 +1254,7 @@ export default function ProjectsPage() {
 
                 {/* Multi-slip viewer modal with navigation */}
                 {viewSlips && viewSlips.length > 0 && (
-                  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewSlips(null)}>
+                  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-between items-center p-4 border-b border-gray-100">
                         <h3 className="font-semibold text-gray-900">
