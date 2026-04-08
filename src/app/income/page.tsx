@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, HORSE_PERCENT, POOL_PERCENT, getHorsePercent, getPoolPercent } from '@/types';
+import { MEMBERS, HORSE_PERCENT, POOL_PERCENT, RecipientId, ALL_SHARE_NAMES, getHorsePercent, getPoolPercent } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -13,15 +13,45 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
   Legend,
 } from 'recharts';
-import { Wallet, Filter, TrendingUp, CheckCircle2 } from 'lucide-react';
+import { Wallet, Filter, TrendingUp, CheckCircle2, X, Save, Banknote, Plus } from 'lucide-react';
+import SlipUploader from '@/components/SlipUploader';
 
 export default function IncomePage() {
   const hydrated = useHydrated();
-  const { projects, payments, distributions } = useStore();
+  const { projects, payments, distributions, addDistribution } = useStore();
   const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  // Distribution popup state
+  const [distModal, setDistModal] = useState<{ recipientId: RecipientId; projectId: string; projectName: string; maxAmount: number } | null>(null);
+  const [distForm, setDistForm] = useState({ amount: 0, paidDate: '', slipUrl: '', slipUrls: [] as string[], note: '' });
+  const [viewSlipUrl, setViewSlipUrl] = useState<string | null>(null);
+
+  const openDistModal = (recipientId: RecipientId, projectId: string, projectName: string, maxAmount: number) => {
+    const today = new Date();
+    const dStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    setDistModal({ recipientId, projectId, projectName, maxAmount });
+    setDistForm({ amount: maxAmount > 0 ? Math.round(maxAmount * 100) / 100 : 0, paidDate: dStr, slipUrl: '', slipUrls: [], note: '' });
+  };
+
+  const handleSaveDist = () => {
+    if (!distModal) return;
+    if (!distForm.amount || distForm.amount <= 0) {
+      alert('กรุณาระบุจำนวนเงิน');
+      return;
+    }
+    addDistribution({
+      projectId: distModal.projectId,
+      recipientId: distModal.recipientId,
+      amount: distForm.amount,
+      paidDate: distForm.paidDate,
+      slipUrl: distForm.slipUrl,
+      slipUrls: distForm.slipUrls,
+      note: distForm.note,
+    });
+    setDistModal(null);
+  };
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">กำลังโหลด...</div>;
 
@@ -54,8 +84,10 @@ export default function IncomePage() {
       const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
       const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
       const shouldPay = expected * paidRatio;
-      const outstanding = Math.max(0, shouldPay - actual);
-      return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding };
+      const diff = shouldPay - actual; // บวก = ค้าง, ลบ = เกิน
+      const outstanding = Math.max(0, diff);
+      const overpaid = Math.max(0, -diff);
+      return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding, overpaid };
     }).filter((p) => p.expected > 0 || p.actual > 0);
 
     return { ...member, expectedIncome, actualIncome, projectBreakdown };
@@ -85,9 +117,27 @@ export default function IncomePage() {
   }, 0);
 
   const chartData = [
-    ...memberIncomes.map((m) => ({ name: m.name, expected: m.expectedIncome, actual: m.actualIncome, color: m.color })),
-    { name: 'ผู้จัดการ', expected: horseExpected, actual: horseActual, color: '#f59e0b' },
-    { name: 'กองกลาง', expected: poolExpected, actual: poolActual, color: '#6b7280' },
+    ...memberIncomes.map((m) => ({
+      name: m.name,
+      actual: m.actualIncome,
+      remaining: Math.max(0, m.expectedIncome - m.actualIncome),
+      total: m.expectedIncome,
+      color: m.color,
+    })),
+    {
+      name: 'ผู้จัดการ',
+      actual: horseActual,
+      remaining: Math.max(0, horseExpected - horseActual),
+      total: horseExpected,
+      color: '#f59e0b',
+    },
+    {
+      name: 'กองกลาง',
+      actual: poolActual,
+      remaining: Math.max(0, poolExpected - poolActual),
+      total: poolExpected,
+      color: '#6b7280',
+    },
   ];
 
   return (
@@ -194,16 +244,16 @@ export default function IncomePage() {
       {/* Chart */}
       <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-6">
         <h2 className="font-semibold text-gray-900 mb-4">เปรียบเทียบรายได้ (รับจริง vs คาดว่าจะได้)</h2>
-        {chartData.some((d) => d.expected > 0 || d.actual > 0) ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
+        {chartData.some((d) => d.total > 0 || d.actual > 0) ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 30 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" fontSize={12} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
               <YAxis type="category" dataKey="name" fontSize={12} width={80} />
-              <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+              <Tooltip formatter={(value) => formatCurrency(Number(value))} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
               <Legend />
-              <Bar dataKey="actual" name="รับจริง" fill="#22c55e" radius={[0, 6, 6, 0]} barSize={14} />
-              <Bar dataKey="expected" name="คาดว่าจะได้" fill="#a5b4fc" radius={[0, 6, 6, 0]} barSize={14} />
+              <Bar dataKey="actual" name="รับจริง" stackId="income" fill="#22c55e" barSize={28} radius={[6, 0, 0, 6]} />
+              <Bar dataKey="remaining" name="คงเหลือ" stackId="income" fill="#e5e7eb" barSize={28} radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
@@ -240,16 +290,27 @@ export default function IncomePage() {
                 </thead>
                 <tbody>
                   {member.projectBreakdown.map((pb) => (
-                    <tr key={pb.projectId} className="border-t border-gray-50">
+                    <tr
+                      key={pb.projectId}
+                      onClick={() => openDistModal(member.id, pb.projectId, pb.projectName, pb.outstanding)}
+                      className="border-t border-gray-50 hover:bg-indigo-50/40 cursor-pointer transition-colors"
+                      title="คลิกเพื่อเพิ่มการโอนเงิน"
+                    >
                       <td className="px-5 py-2.5 text-gray-700">{pb.projectName}</td>
                       <td className="px-5 py-2.5 text-gray-500">{pb.client || '-'}</td>
                       <td className="px-5 py-2.5 text-right text-gray-500">{formatCurrency(pb.expected)}</td>
                       <td className="px-5 py-2.5 text-right text-blue-600 font-medium">{formatCurrency(pb.shouldPay)}</td>
                       <td className="px-5 py-2.5 text-right text-green-600 font-medium">{formatCurrency(pb.actual)}</td>
                       <td className="px-5 py-2.5 text-right">
-                        <span className={pb.outstanding <= 0 ? 'text-green-600 font-medium' : 'text-red-500 font-medium'}>
-                          {pb.outstanding <= 0 ? '✅ ครบ' : formatCurrency(pb.outstanding)}
-                        </span>
+                        {pb.overpaid > 0 ? (
+                          <span className="text-orange-600 font-medium" title="โอนเกินจำนวนที่ต้องโอน">
+                            ⚠ เกิน {formatCurrency(pb.overpaid)}
+                          </span>
+                        ) : pb.outstanding <= 0 ? (
+                          <span className="text-green-600 font-medium">✅ ครบ</span>
+                        ) : (
+                          <span className="text-red-500 font-medium">{formatCurrency(pb.outstanding)}</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -271,8 +332,10 @@ export default function IncomePage() {
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
           const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
           const shouldPay = expected * paidRatio;
-          const outstanding = Math.max(0, shouldPay - actual);
-          return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding };
+          const diff = shouldPay - actual;
+          const outstanding = Math.max(0, diff);
+          const overpaid = Math.max(0, -diff);
+          return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding, overpaid };
         }).filter((p) => p.expected > 0 || p.actual > 0);
 
         return (
@@ -303,16 +366,27 @@ export default function IncomePage() {
                   </thead>
                   <tbody>
                     {horseBreakdown.map((pb) => (
-                      <tr key={pb.projectId} className="border-t border-gray-50">
+                      <tr
+                        key={pb.projectId}
+                        onClick={() => openDistModal('horse', pb.projectId, pb.projectName, pb.outstanding)}
+                        className="border-t border-gray-50 hover:bg-amber-50/60 cursor-pointer transition-colors"
+                        title="คลิกเพื่อเพิ่มการโอนเงิน"
+                      >
                         <td className="px-5 py-2.5 text-gray-700">{pb.projectName}</td>
                         <td className="px-5 py-2.5 text-gray-500">{pb.client || '-'}</td>
                         <td className="px-5 py-2.5 text-right text-gray-500">{formatCurrency(pb.expected)}</td>
                         <td className="px-5 py-2.5 text-right text-blue-600 font-medium">{formatCurrency(pb.shouldPay)}</td>
                         <td className="px-5 py-2.5 text-right text-green-600 font-medium">{formatCurrency(pb.actual)}</td>
                         <td className="px-5 py-2.5 text-right">
-                          <span className={pb.outstanding <= 0 ? 'text-green-600 font-medium' : 'text-red-500 font-medium'}>
-                            {pb.outstanding <= 0 ? '✅ ครบ' : formatCurrency(pb.outstanding)}
-                          </span>
+                          {pb.overpaid > 0 ? (
+                            <span className="text-orange-600 font-medium" title="โอนเกินจำนวนที่ต้องโอน">
+                              ⚠ เกิน {formatCurrency(pb.overpaid)}
+                            </span>
+                          ) : pb.outstanding <= 0 ? (
+                            <span className="text-green-600 font-medium">✅ ครบ</span>
+                          ) : (
+                            <span className="text-red-500 font-medium">{formatCurrency(pb.outstanding)}</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -335,8 +409,10 @@ export default function IncomePage() {
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
           const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
           const shouldPay = expected * paidRatio;
-          const outstanding = Math.max(0, shouldPay - actual);
-          return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding };
+          const diff = shouldPay - actual;
+          const outstanding = Math.max(0, diff);
+          const overpaid = Math.max(0, -diff);
+          return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding, overpaid };
         }).filter((p) => p.expected > 0 || p.actual > 0);
 
         return (
@@ -367,16 +443,27 @@ export default function IncomePage() {
                   </thead>
                   <tbody>
                     {poolBreakdown.map((pb) => (
-                      <tr key={pb.projectId} className="border-t border-gray-50">
+                      <tr
+                        key={pb.projectId}
+                        onClick={() => openDistModal('pool', pb.projectId, pb.projectName, pb.outstanding)}
+                        className="border-t border-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+                        title="คลิกเพื่อเพิ่มการโอนเงิน"
+                      >
                         <td className="px-5 py-2.5 text-gray-700">{pb.projectName}</td>
                         <td className="px-5 py-2.5 text-gray-500">{pb.client || '-'}</td>
                         <td className="px-5 py-2.5 text-right text-gray-500">{formatCurrency(pb.expected)}</td>
                         <td className="px-5 py-2.5 text-right text-blue-600 font-medium">{formatCurrency(pb.shouldPay)}</td>
                         <td className="px-5 py-2.5 text-right text-green-600 font-medium">{formatCurrency(pb.actual)}</td>
                         <td className="px-5 py-2.5 text-right">
-                          <span className={pb.outstanding <= 0 ? 'text-green-600 font-medium' : 'text-red-500 font-medium'}>
-                            {pb.outstanding <= 0 ? '✅ ครบ' : formatCurrency(pb.outstanding)}
-                          </span>
+                          {pb.overpaid > 0 ? (
+                            <span className="text-orange-600 font-medium" title="โอนเกินจำนวนที่ต้องโอน">
+                              ⚠ เกิน {formatCurrency(pb.overpaid)}
+                            </span>
+                          ) : pb.outstanding <= 0 ? (
+                            <span className="text-green-600 font-medium">✅ ครบ</span>
+                          ) : (
+                            <span className="text-red-500 font-medium">{formatCurrency(pb.outstanding)}</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -389,6 +476,96 @@ export default function IncomePage() {
           </div>
         );
       })()}
+
+      {/* Distribution Modal — เพิ่มการโอนเงินให้สมาชิก */}
+      {distModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDistModal(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-xl">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow">
+                  <Banknote size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-gray-900">เพิ่มการโอนเงิน</h2>
+                  <p className="text-xs text-gray-500">{ALL_SHARE_NAMES[distModal.recipientId]} — {distModal.projectName}</p>
+                </div>
+              </div>
+              <button onClick={() => setDistModal(null)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-white/60">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {distModal.maxAmount > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm flex items-center justify-between">
+                  <span className="text-blue-700">คงค้างที่ต้องโอน</span>
+                  <strong className="text-blue-800">{formatCurrency(distModal.maxAmount)}</strong>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท) *</label>
+                  <input
+                    type="number"
+                    value={distForm.amount || ''}
+                    onChange={(e) => setDistForm({ ...distForm, amount: Number(e.target.value) })}
+                    className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
+                  <input
+                    type="date"
+                    value={distForm.paidDate}
+                    onChange={(e) => setDistForm({ ...distForm, paidDate: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">อัพโหลด Slip</label>
+                <SlipUploader
+                  values={distForm.slipUrls}
+                  onChange={(urls) => setDistForm({ ...distForm, slipUrls: urls, slipUrl: urls[0] || '' })}
+                  onPreview={(url) => setViewSlipUrl(url)}
+                  color="green"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
+                <input
+                  type="text"
+                  value={distForm.note}
+                  onChange={(e) => setDistForm({ ...distForm, note: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="หมายเหตุเพิ่มเติม..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setDistModal(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
+              <button onClick={handleSaveDist} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 shadow">
+                <Save size={16} /> บันทึก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slip viewer */}
+      {viewSlipUrl && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setViewSlipUrl(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl max-h-[90vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-semibold text-gray-900">Slip</h3>
+              <button onClick={() => setViewSlipUrl(null)} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={viewSlipUrl} alt="Slip" className="w-full rounded-lg" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

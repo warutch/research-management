@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent } from '@/types';
 import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
@@ -46,6 +47,15 @@ export default function ProjectsPage() {
   const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending' });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(sortedProjects[0]?.id || null);
   const [activeTab, setActiveTab] = useState<'activities' | 'installments' | 'payments' | 'distribution'>('activities');
+
+  // รับ ?id=<projectId> จาก query param → auto select project
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const idFromUrl = searchParams.get('id');
+    if (idFromUrl && sortedProjects.some((p) => p.id === idFromUrl)) {
+      setSelectedProjectId(idFromUrl);
+    }
+  }, [searchParams, sortedProjects]);
 
   const [activityForm, setActivityForm] = useState(emptyActivity());
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
