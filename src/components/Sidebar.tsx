@@ -41,12 +41,8 @@ export default function Sidebar() {
   const { user } = useAuth();
 
   const handleBrandClick = () => {
-    // Reset filters ทั้งหมด + กลับ Dashboard
-    const s = useStore.getState();
-    s.setTypeFilter('all');
-    s.setStatusFilter('all');
-    s.setYearFilter('all');
-    s.setSearchQuery('');
+    // Reset filters เป็น default + กลับ Dashboard
+    useStore.getState().resetFilters();
     setMobileOpen(false);
     router.push('/');
   };

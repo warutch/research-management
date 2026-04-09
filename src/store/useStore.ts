@@ -42,6 +42,7 @@ interface AppState {
   setStatusFilter: (f: StatusFilter) => void;
   setYearFilter: (f: YearFilter) => void;
   setSearchQuery: (q: string) => void;
+  resetFilters: () => void;
 
   // Raw (ไม่ filter) — ใช้ภายใน
   _allProjects: Project[];
@@ -127,6 +128,16 @@ export function getProjectYear(p: Project): string | null {
   const code = p.projectCode || '';
   const m = code.match(/^(\d{4})/);
   return m ? m[1] : null;
+}
+
+// ปีล่าสุดจาก list projects (หรือ null ถ้าไม่มีปีเลย)
+export function getLatestYear(projects: Project[]): string | null {
+  let latest: string | null = null;
+  for (const p of projects) {
+    const y = getProjectYear(p);
+    if (y && (!latest || y > latest)) latest = y;
+  }
+  return latest;
 }
 
 // ตรวจว่า project ตรงกับ search query ไหม
@@ -240,6 +251,18 @@ export const useStore = create<AppState>()((set, get) => ({
   setSearchQuery: (q) => {
     set((state) => ({ searchQuery: q, ...recomputeFiltered({ ...state, searchQuery: q }) }));
   },
+  resetFilters: () => {
+    set((state) => {
+      const latest = getLatestYear(state._allProjects);
+      const next = {
+        typeFilter: 'all' as ProjectTypeFilter,
+        statusFilter: 'all' as StatusFilter,
+        yearFilter: (latest || 'all') as YearFilter,
+        searchQuery: '',
+      };
+      return { ...next, ...recomputeFiltered({ ...state, ...next }) };
+    });
+  },
 
   // Data
   _allProjects: [],
@@ -276,17 +299,26 @@ export const useStore = create<AppState>()((set, get) => ({
       const _allQuotations = (quotationsRes.data || []).map(quotationFromDb);
       const _allTrackingActivities = (trackingRes.data || []).map(trackingActivityFromDb);
 
-      set((state) => ({
-        _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
-        ...recomputeFiltered({
+      set((state) => {
+        // ครั้งแรกที่โหลด — set yearFilter เป็นปีล่าสุดอัตโนมัติ (default)
+        let yearFilter = state.yearFilter;
+        if (!state.dataLoaded && yearFilter === 'all') {
+          const latest = getLatestYear(_allProjects);
+          if (latest) yearFilter = latest;
+        }
+        return {
           _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
-          typeFilter: state.typeFilter,
-          statusFilter: state.statusFilter,
-          yearFilter: state.yearFilter,
-          searchQuery: state.searchQuery,
-        }),
-        dataLoaded: true,
-      }));
+          yearFilter,
+          ...recomputeFiltered({
+            _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
+            typeFilter: state.typeFilter,
+            statusFilter: state.statusFilter,
+            yearFilter,
+            searchQuery: state.searchQuery,
+          }),
+          dataLoaded: true,
+        };
+      });
     } catch (e) {
       console.error('[Supabase] loadAllData failed:', e);
       set({ dataLoaded: true });

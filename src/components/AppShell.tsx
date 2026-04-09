@@ -7,10 +7,10 @@ import {
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import AuthGuard from './AuthGuard';
-import { useStore, getProjectYear, type StatusFilter, type YearFilter } from '@/store/useStore';
+import { useStore, getProjectYear, getLatestYear, type StatusFilter, type YearFilter } from '@/store/useStore';
 import { PROJECT_TYPE_COLORS, PROJECT_TYPE_LABELS, type ProjectTypeFilter } from '@/types';
 import { cn } from '@/lib/utils';
-import { Filter, Search, X } from 'lucide-react';
+import { Filter, Search, X, RotateCcw } from 'lucide-react';
 import { useMemo } from 'react';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -127,6 +127,7 @@ function TopFilterBar() {
   const setYearFilter = useStore((s) => s.setYearFilter);
   const searchQuery = useStore((s) => s.searchQuery);
   const setSearchQuery = useStore((s) => s.setSearchQuery);
+  const resetFilters = useStore((s) => s.resetFilters);
   const allProjects = useStore((s) => s._allProjects);
 
   // ปีทั้งหมดจาก 4 ตัวแรกของ projectCode (เรียงใหม่→เก่า)
@@ -138,6 +139,15 @@ function TopFilterBar() {
     }
     return Array.from(years).sort((a, b) => b.localeCompare(a));
   }, [allProjects]);
+
+  // ตรวจว่ามี filter ไหนที่ไม่ใช่ default → โชว์ปุ่ม Reset
+  const latestYear = useMemo(() => getLatestYear(allProjects), [allProjects]);
+  const defaultYear: YearFilter = latestYear || 'all';
+  const hasActiveFilter =
+    typeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    yearFilter !== defaultYear ||
+    searchQuery.trim() !== '';
 
   const typeOptions: { value: ProjectTypeFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -203,6 +213,18 @@ function TopFilterBar() {
           <option key={y} value={y}>ปี {y}</option>
         ))}
       </select>
+
+      {/* Reset filters — โชว์เมื่อมี filter ใดๆ active */}
+      {hasActiveFilter && (
+        <button
+          onClick={resetFilters}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-300 transition-all"
+          data-testid="filter-reset"
+          title="Reset filters เป็นค่า default"
+        >
+          <RotateCcw size={11} /> Reset
+        </button>
+      )}
 
       {/* Search box */}
       <div className="relative flex-1 min-w-[180px] max-w-sm ml-auto">
