@@ -184,11 +184,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 text-sm mt-1">ภาพรวมการทำงานและโครงการ</p>
-      </div>
-
       {/* ============ ROW 1: Key Metrics ============ */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-4 relative overflow-hidden">

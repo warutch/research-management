@@ -4,47 +4,25 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { Banknote, Filter, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Banknote, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getSlips } from '@/types';
 
 export default function PaymentsPage() {
   const hydrated = useHydrated();
   const { payments, projects } = useStore();
-  const [filterProjectId, setFilterProjectId] = useState<string>('all');
   const [viewSlips, setViewSlips] = useState<string[] | null>(null);
   const [viewSlipIndex, setViewSlipIndex] = useState(0);
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">...</div>;
 
-  const filteredPayments = (filterProjectId === 'all'
-    ? payments
-    : payments.filter((p) => p.projectId === filterProjectId)
-  ).sort((a, b) => new Date(b.paidDate || b.createdAt).getTime() - new Date(a.paidDate || a.createdAt).getTime());
+  const filteredPayments = [...payments].sort(
+    (a, b) => new Date(b.paidDate || b.createdAt).getTime() - new Date(a.paidDate || a.createdAt).getTime()
+  );
 
   const totalAmount = filteredPayments.reduce((s, p) => s + p.amount, 0);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">ประวัติการชำระเงิน</h1>
-          <p className="text-gray-500 text-sm mt-1">ดูรายการชำระเงินจากลูกค้าทั้งหมดของทุกโครงการ</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter size={16} className="text-gray-400" />
-          <select
-            value={filterProjectId}
-            onChange={(e) => setFilterProjectId(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="all">ทุกโครงการ</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
       {/* Summary */}
       <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 p-5 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">

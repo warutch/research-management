@@ -1,4 +1,29 @@
-import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId } from '@/types';
+import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId, ProjectType } from '@/types';
+
+// DB column ชื่อ `workspace` (จาก migration) → TS field ชื่อ `type`
+const DEFAULT_PROJECT_TYPE: ProjectType = 'doctor';
+function normalizeProjectType(value: unknown): ProjectType {
+  return value === 'student' ? 'student' : DEFAULT_PROJECT_TYPE;
+}
+
+// ถ้า DB ยังไม่มี column 'workspace' (user ยังไม่ได้รัน migration)
+// จะตั้ง flag นี้ให้เลิกส่งฟิลด์นั้นไป เพื่อไม่ให้ error ซ้ำ
+let workspaceColumnMissing = false;
+export function markWorkspaceColumnMissing() {
+  if (!workspaceColumnMissing) {
+    workspaceColumnMissing = true;
+    console.warn(
+      '[supabaseSync] DB projects.workspace column not found — ปิดการ sync type field\n' +
+      'กรุณารัน migration section 3 ใน supabase/schema.sql เพื่อเปิดใช้ Doctor/Student type'
+    );
+  }
+}
+export function isWorkspaceMissingError(e: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = e as any;
+  const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
+  return /workspace/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+}
 
 // ================================================================
 // Helpers แปลงข้อมูลระหว่าง camelCase (TypeScript) ↔ snake_case (DB)
@@ -7,7 +32,7 @@ import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity
 // --- Project ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function projectToDb(p: Project): any {
-  return {
+  const base = {
     id: p.id,
     project_code: p.projectCode,
     name: p.name,
@@ -20,6 +45,11 @@ export function projectToDb(p: Project): any {
     installments: p.installments,
     created_at: p.createdAt,
   };
+  // ส่ง workspace เฉพาะถ้า DB มี column นี้ (ไม่งั้น PGRST204)
+  if (!workspaceColumnMissing) {
+    return { ...base, workspace: p.type };
+  }
+  return base;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,6 +66,7 @@ export function projectFromDb(row: any): Project {
     activities: row.activities || [],
     installments: row.installments || [],
     createdAt: row.created_at || new Date().toISOString(),
+    type: normalizeProjectType(row.workspace),
   };
 }
 

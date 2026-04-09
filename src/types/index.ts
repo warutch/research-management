@@ -1,3 +1,20 @@
+// ============ Project Type (Doctor / Student) ============
+// แต่ละโครงการระบุว่าเป็น Doctor หรือ Student
+// child records (payment/distribution/quotation/tracking) ไม่มี type ของตัวเอง
+// — ใช้ projectId join กับ project เพื่อ filter
+export type ProjectType = 'doctor' | 'student';
+export type ProjectTypeFilter = 'all' | ProjectType;
+
+export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
+  doctor: 'Doctor',
+  student: 'Student',
+};
+
+export const PROJECT_TYPE_COLORS: Record<ProjectType, { bg: string; text: string; border: string; dot: string }> = {
+  doctor: { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-300', dot: 'bg-sky-500' },
+  student: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-300', dot: 'bg-amber-500' },
+};
+
 export type MemberId = 'tangmo' | 'frank' | 'ton';
 
 export interface Member {
@@ -90,6 +107,7 @@ export interface Project {
   activities: Activity[];
   installments: PaymentInstallment[];
   createdAt: string;
+  type: ProjectType; // 'doctor' | 'student'
 }
 
 export interface QuotationItem {

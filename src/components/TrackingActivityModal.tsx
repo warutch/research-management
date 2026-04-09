@@ -87,7 +87,8 @@ export default function TrackingActivityModal({ open, editingActivity, projects,
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[95vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-t-xl">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-t-xl sticky top-0 z-10">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow">
               <CalendarDays size={18} className="text-white" />
@@ -99,7 +100,40 @@ export default function TrackingActivityModal({ open, editingActivity, projects,
           </button>
         </div>
 
+        {/* Action bar ข้างบน — กดง่ายบน mobile */}
+        <div className="flex items-center gap-2 p-3 border-b border-gray-100 bg-gray-50/80">
+          {editingActivity && onDelete ? (
+            <button onClick={handleDelete} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-100">
+              <Trash2 size={15} /> ลบ
+            </button>
+          ) : null}
+          <div className="flex-1" />
+          <button onClick={onClose} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 rounded-lg hover:bg-white border border-gray-200">
+            ยกเลิก
+          </button>
+          <button onClick={handleSave} className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-cyan-700 hover:to-blue-700 shadow">
+            <Save size={15} /> บันทึก
+          </button>
+        </div>
+
         <div className="p-5 space-y-4">
+          {/* Status — อยู่บนสุด กดอัพเดทง่าย */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">สถานะ</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['todo', 'in_progress', 'done'] as TrackingStatus[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setForm({ ...form, status: s })}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium border-2 transition-all ${form.status === s ? statusColors[s].active : statusColors[s].inactive}`}
+                >
+                  {TRACKING_STATUS_LABELS[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">ชื่องาน *</label>
             <input
@@ -108,7 +142,6 @@ export default function TrackingActivityModal({ open, editingActivity, projects,
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-cyan-500"
               placeholder="เช่น ส่ง draft proposal"
-              autoFocus
             />
           </div>
 
@@ -207,35 +240,6 @@ export default function TrackingActivityModal({ open, editingActivity, projects,
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">สถานะ</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['todo', 'in_progress', 'done'] as TrackingStatus[]).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setForm({ ...form, status: s })}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium border-2 transition-all ${form.status === s ? statusColors[s].active : statusColors[s].inactive}`}
-                >
-                  {TRACKING_STATUS_LABELS[s]}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 p-5 border-t border-gray-100">
-          {editingActivity && onDelete ? (
-            <button onClick={handleDelete} className="flex items-center gap-1 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg">
-              <Trash2 size={14} /> ลบ
-            </button>
-          ) : <div />}
-          <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
-            <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-cyan-700 hover:to-blue-700 shadow">
-              <Save size={16} /> บันทึก
-            </button>
-          </div>
         </div>
       </div>
     </div>

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS } from '@/types';
 import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
@@ -44,7 +44,7 @@ export default function ProjectsPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending' });
+  const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor' });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(sortedProjects[0]?.id || null);
   const [activeTab, setActiveTab] = useState<'activities' | 'installments' | 'payments' | 'distribution'>('activities');
 
@@ -86,7 +86,7 @@ export default function ProjectsPage() {
   };
 
   const openNewProjectForm = () => {
-    setForm({ projectCode: generateProjectCode(projects), name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending' });
+    setForm({ projectCode: generateProjectCode(projects), name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor' });
     setEditingId(null);
     setShowForm(true);
   };
@@ -127,7 +127,7 @@ export default function ProjectsPage() {
   };
 
   const handleEditProject = (project: Project) => {
-    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status });
+    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type });
     setEditingId(project.id);
     setShowForm(true);
   };
@@ -283,11 +283,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">จัดการโครงการ</h1>
-          <p className="text-gray-500 text-sm mt-1">เพิ่ม แก้ไข และจัดการกิจกรรม/งวดเงินในโครงการวิจัย</p>
-        </div>
+      <div className="flex items-center justify-end">
         <button onClick={openNewProjectForm} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
           <Plus size={16} /> เพิ่มโครงการ
         </button>
@@ -330,13 +326,22 @@ export default function ProjectsPage() {
                   <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProjectStatus })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="pending">รอดำเนินการ</option>
-                  <option value="in_progress">กำลังดำเนินการ</option>
-                  <option value="completed">เสร็จสิ้น</option>
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">ประเภท (Type)</label>
+                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ProjectType })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <option value="doctor">{PROJECT_TYPE_LABELS.doctor}</option>
+                    <option value="student">{PROJECT_TYPE_LABELS.student}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
+                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProjectStatus })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <option value="pending">รอดำเนินการ</option>
+                    <option value="in_progress">กำลังดำเนินการ</option>
+                    <option value="completed">เสร็จสิ้น</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t">
@@ -407,6 +412,7 @@ export default function ProjectsPage() {
                       <div className="flex items-center gap-3 mb-1">
                         {project.projectCode && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">{project.projectCode}</span>}
                         <h3 className="font-semibold text-gray-900">{project.name}</h3>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium border ${PROJECT_TYPE_COLORS[project.type].bg} ${PROJECT_TYPE_COLORS[project.type].text} ${PROJECT_TYPE_COLORS[project.type].border}`}>{PROJECT_TYPE_LABELS[project.type]}</span>
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(project.status)}`}>{getStatusLabel(project.status)}</span>
                       </div>
                       <p className="text-sm text-gray-500">{project.client || 'ไม่ระบุผู้วิจัย'}</p>

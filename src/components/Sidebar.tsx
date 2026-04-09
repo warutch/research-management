@@ -40,6 +40,17 @@ export default function Sidebar() {
   const { projects, quotations, payments, distributions, migrateFromLocalStorage } = useStore();
   const { user } = useAuth();
 
+  const handleBrandClick = () => {
+    // Reset filters ทั้งหมด + กลับ Dashboard
+    const s = useStore.getState();
+    s.setTypeFilter('all');
+    s.setStatusFilter('all');
+    s.setYearFilter('all');
+    s.setSearchQuery('');
+    setMobileOpen(false);
+    router.push('/');
+  };
+
   const handleExport = () => {
     const data = {
       version: 1,
@@ -127,20 +138,26 @@ export default function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-40 h-full w-64 bg-white border-r border-gray-200 transition-transform duration-200 flex flex-col',
-          'lg:translate-x-0 lg:static lg:z-auto',
+          'fixed top-0 left-0 z-40 h-screen w-64 bg-white border-r border-gray-200 transition-transform duration-200 flex flex-col',
+          'lg:translate-x-0',
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-md">
-            <FlaskConical size={20} className="text-white" />
+        <button
+          onClick={handleBrandClick}
+          /* ความสูง sync อัตโนมัติจาก AppShell → --top-bar-h (PageHeader + TopFilterBar) */
+          style={{ height: 'var(--top-bar-h, 90px)' }}
+          className="flex items-center gap-3 px-5 border-b border-gray-200 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 hover:from-indigo-100 hover:via-purple-100 hover:to-pink-100 transition-all text-left w-full group shrink-0"
+          title="กลับหน้า Dashboard และล้างตัวกรอง"
+        >
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all shrink-0">
+            <FlaskConical size={24} className="text-white" />
           </div>
-          <div>
-            <h1 className="font-bold text-gray-900 text-sm">Research Manager</h1>
-            <p className="text-xs text-gray-500">ระบบจัดการงานวิจัย</p>
+          <div className="min-w-0">
+            <h1 className="font-bold text-gray-900 text-base leading-tight">Research Manager</h1>
+            <p className="text-xs text-gray-500 mt-0.5">ระบบจัดการงานวิจัย</p>
           </div>
-        </div>
+        </button>
 
         <nav className="px-3 py-4 space-y-1 flex-1 overflow-y-auto">
           {navItems.map((item) => {

@@ -15,13 +15,12 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { Wallet, Filter, TrendingUp, CheckCircle2, X, Save, Banknote, Plus } from 'lucide-react';
+import { Wallet, TrendingUp, CheckCircle2, X, Save, Banknote, Plus } from 'lucide-react';
 import SlipUploader from '@/components/SlipUploader';
 
 export default function IncomePage() {
   const hydrated = useHydrated();
   const { projects, payments, distributions, addDistribution } = useStore();
-  const [filterStatus, setFilterStatus] = useState<string>('all');
 
   // Distribution popup state
   const [distModal, setDistModal] = useState<{ recipientId: RecipientId; projectId: string; projectName: string; maxAmount: number } | null>(null);
@@ -55,9 +54,7 @@ export default function IncomePage() {
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">กำลังโหลด...</div>;
 
-  const filteredProjects = filterStatus === 'all'
-    ? projects
-    : projects.filter((p) => p.status === filterStatus);
+  const filteredProjects = projects;
 
   // รายรับที่คาดว่าจะได้ (จากกิจกรรม)
   const memberIncomes = MEMBERS.map((member) => {
@@ -142,22 +139,6 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">รายได้</h1>
-          <p className="text-gray-500 text-sm mt-1">รายรับจริงที่ชำระแล้ว กับรายรับที่คาดว่าจะได้ (หักManager + Pool money รายกิจกรรม)</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter size={16} className="text-gray-400" />
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="all">ทุกสถานะ</option>
-            <option value="completed">เสร็จสิ้นแล้ว</option>
-            <option value="in_progress">กำลังดำเนินการ</option>
-            <option value="pending">รอดำเนินการ</option>
-          </select>
-        </div>
-      </div>
-
       {/* Member Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {memberIncomes.map((member) => (

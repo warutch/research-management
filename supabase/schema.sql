@@ -117,5 +117,42 @@ create policy "Allow authenticated all" on quotations
   for all to authenticated using (true) with check (true);
 
 -- ================================================================
+-- 3. Workspace column (Doctor / Student mode)
+-- รันได้ทั้ง fresh install และ migrate ของเดิม (idempotent)
+-- ข้อมูลเก่าทั้งหมดจะถูก default เป็น 'doctor' — ถ้ามี student data
+-- ต้อง UPDATE เอง เช่น:
+--   update projects set workspace='student' where id in ('xxx', 'yyy');
+-- ================================================================
+
+alter table projects add column if not exists workspace text not null default 'doctor';
+alter table payments add column if not exists workspace text not null default 'doctor';
+alter table distributions add column if not exists workspace text not null default 'doctor';
+alter table quotations add column if not exists workspace text not null default 'doctor';
+alter table tracking_activities add column if not exists workspace text not null default 'doctor';
+
+-- บังคับให้ workspace เป็น 'doctor' หรือ 'student' เท่านั้น
+-- (drop ก่อน เผื่อรันซ้ำ)
+alter table projects drop constraint if exists projects_workspace_chk;
+alter table projects add constraint projects_workspace_chk check (workspace in ('doctor','student'));
+
+alter table payments drop constraint if exists payments_workspace_chk;
+alter table payments add constraint payments_workspace_chk check (workspace in ('doctor','student'));
+
+alter table distributions drop constraint if exists distributions_workspace_chk;
+alter table distributions add constraint distributions_workspace_chk check (workspace in ('doctor','student'));
+
+alter table quotations drop constraint if exists quotations_workspace_chk;
+alter table quotations add constraint quotations_workspace_chk check (workspace in ('doctor','student'));
+
+alter table tracking_activities drop constraint if exists tracking_activities_workspace_chk;
+alter table tracking_activities add constraint tracking_activities_workspace_chk check (workspace in ('doctor','student'));
+
+create index if not exists idx_projects_workspace on projects(workspace);
+create index if not exists idx_payments_workspace on payments(workspace);
+create index if not exists idx_distributions_workspace on distributions(workspace);
+create index if not exists idx_quotations_workspace on quotations(workspace);
+create index if not exists idx_tracking_activities_workspace on tracking_activities(workspace);
+
+-- ================================================================
 -- เสร็จแล้ว! ไปสร้าง user accounts ที่ Authentication → Users
 -- ================================================================
