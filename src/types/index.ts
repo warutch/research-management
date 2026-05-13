@@ -57,6 +57,9 @@ export const STANDARD_ACTIVITIES = [
   'Result',
   'Publication Support',
   'Consult',
+  'Research question',
+  'Planning (Rational, Background, Research Design, Data Collection, Design CRF)',
+  'Result (Analysis, Discussion, Conclusion)',
 ] as const;
 
 export type ProjectStatus = 'pending' | 'in_progress' | 'completed';

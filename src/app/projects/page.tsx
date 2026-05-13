@@ -27,6 +27,42 @@ const emptyInstallment = (): Omit<PaymentInstallment, 'id'> => ({
   installmentNumber: 1, name: '', amount: 0, status: 'pending', paidDate: '',
 });
 
+// Default activities + installments แยกตามประเภทโครงการ
+type DefaultActivity = { name: string; cost: number; sharePercent: { tangmo: number; frank: number; ton: number } };
+
+const DEFAULT_ACTIVITIES_BY_TYPE: Record<ProjectType, DefaultActivity[]> = {
+  doctor: [
+    { name: 'Proposal', cost: 20000, sharePercent: { tangmo: 80, frank: 0, ton: 15 } },
+    { name: 'Analysis', cost: 20000, sharePercent: { tangmo: 0, frank: 80, ton: 15 } },
+    { name: 'Result', cost: 10000, sharePercent: { tangmo: 80, frank: 0, ton: 15 } },
+    { name: 'Publication Support', cost: 15000, sharePercent: { tangmo: 55, frank: 20, ton: 20 } },
+  ],
+  student: [
+    { name: 'Research question', cost: 5000, sharePercent: { tangmo: 65, frank: 20, ton: 10 } },
+    { name: 'Planning (Rational, Background, Research Design, Data Collection, Design CRF)', cost: 10000, sharePercent: { tangmo: 65, frank: 20, ton: 10 } },
+    { name: 'Result (Analysis, Discussion, Conclusion)', cost: 10000, sharePercent: { tangmo: 35, frank: 45, ton: 15 } },
+  ],
+};
+
+function buildDefaultInstallments(type: ProjectType, acts: DefaultActivity[]): { num: number; name: string; amount: number }[] {
+  const totalAll = acts.reduce((s, a) => s + a.cost, 0);
+  if (type === 'student') {
+    // Student: 2 งวด งวดละ 50% ของยอดรวม
+    return [
+      { num: 1, name: 'งวดที่ 1 มัดจำ 50%', amount: totalAll * 0.5 },
+      { num: 2, name: 'งวดที่ 2 ส่งงาน 50%', amount: totalAll * 0.5 },
+    ];
+  }
+  // Doctor: เดิม — 3 งวด
+  const totalPAR = acts.filter((a) => ['Proposal', 'Analysis', 'Result'].includes(a.name)).reduce((s, a) => s + a.cost, 0);
+  const totalPub = acts.filter((a) => a.name === 'Publication Support').reduce((s, a) => s + a.cost, 0);
+  return [
+    { num: 1, name: 'งวดที่ 1 ส่ง draft มัดจำ 50%', amount: totalAll * 0.5 },
+    { num: 2, name: 'งวดที่ 2 ส่งบทความฉบับสมบูรณ์', amount: totalPAR * 0.5 },
+    { num: 3, name: 'งวดที่ 3 ส่ง Submit วารสาร', amount: totalPub * 0.5 },
+  ];
+}
+
 export default function ProjectsPage() {
   const hydrated = useHydrated();
   const {
@@ -97,25 +133,11 @@ export default function ProjectsPage() {
       updateProject(editingId, form);
     } else {
       const projectId = addProject(form);
-      // 4 กิจกรรม default พร้อมราคาและส่วนแบ่ง
-      const defaultActs = [
-        { name: 'Proposal', cost: 20000, sharePercent: { tangmo: 80, frank: 0, ton: 15 } },
-        { name: 'Analysis', cost: 20000, sharePercent: { tangmo: 0, frank: 80, ton: 15 } },
-        { name: 'Result', cost: 10000, sharePercent: { tangmo: 80, frank: 0, ton: 15 } },
-        { name: 'Publication Support', cost: 15000, sharePercent: { tangmo: 55, frank: 20, ton: 20 } },
-      ];
+      const defaultActs = DEFAULT_ACTIVITIES_BY_TYPE[form.type];
       defaultActs.forEach((act) => {
         addActivity(projectId, { ...act, horsePercent: HORSE_PERCENT, poolPercent: POOL_PERCENT, status: 'pending' as ProjectStatus });
       });
-      // 3 งวดเงิน default + auto-fill จำนวนเงิน
-      const totalAll = defaultActs.reduce((s, a) => s + a.cost, 0);
-      const totalPAR = defaultActs.filter((a) => ['Proposal', 'Analysis', 'Result'].includes(a.name)).reduce((s, a) => s + a.cost, 0);
-      const totalPub = defaultActs.filter((a) => a.name === 'Publication Support').reduce((s, a) => s + a.cost, 0);
-      const defaultInstallments = [
-        { num: 1, name: 'งวดที่ 1 ส่ง draft มัดจำ 50%', amount: totalAll * 0.5 },
-        { num: 2, name: 'งวดที่ 2 ส่งบทความฉบับสมบูรณ์', amount: totalPAR * 0.5 },
-        { num: 3, name: 'งวดที่ 3 ส่ง Submit วารสาร', amount: totalPub * 0.5 },
-      ];
+      const defaultInstallments = buildDefaultInstallments(form.type, defaultActs);
       defaultInstallments.forEach((inst) => {
         addInstallment(projectId, { installmentNumber: inst.num, name: inst.name, amount: inst.amount, status: 'pending', paidDate: '' });
       });
@@ -173,18 +195,27 @@ export default function ProjectsPage() {
   const handleAutoFillInstallments = (project: Project) => {
     const acts = project.activities;
     const totalAll = acts.reduce((s, a) => s + a.cost, 0);
-    const totalPAR = acts.filter((a) => ['Proposal', 'Analysis', 'Result'].includes(a.name)).reduce((s, a) => s + a.cost, 0);
-    const totalPub = acts.filter((a) => a.name === 'Publication Support').reduce((s, a) => s + a.cost, 0);
-    const autoAmounts: Record<number, { amount: number; label: string }> = {
-      1: { amount: totalAll * 0.5, label: `งวดที่ 1: ค่าใช้จ่ายทั้งหมด × 50% = ${formatCurrency(totalAll * 0.5)}` },
-      2: { amount: totalPAR * 0.5, label: `งวดที่ 2: (Proposal+Analysis+Result) × 50% = ${formatCurrency(totalPAR * 0.5)}` },
-      3: { amount: totalPub * 0.5, label: `งวดที่ 3: Publication Support × 50% = ${formatCurrency(totalPub * 0.5)}` },
-    };
+    const projectType: ProjectType = project.type || 'doctor';
+    let autoAmounts: Record<number, { amount: number; label: string }>;
+    if (projectType === 'student') {
+      autoAmounts = {
+        1: { amount: totalAll * 0.5, label: `งวดที่ 1: ค่าใช้จ่ายทั้งหมด × 50% = ${formatCurrency(totalAll * 0.5)}` },
+        2: { amount: totalAll * 0.5, label: `งวดที่ 2: ค่าใช้จ่ายทั้งหมด × 50% = ${formatCurrency(totalAll * 0.5)}` },
+      };
+    } else {
+      const totalPAR = acts.filter((a) => ['Proposal', 'Analysis', 'Result'].includes(a.name)).reduce((s, a) => s + a.cost, 0);
+      const totalPub = acts.filter((a) => a.name === 'Publication Support').reduce((s, a) => s + a.cost, 0);
+      autoAmounts = {
+        1: { amount: totalAll * 0.5, label: `งวดที่ 1: ค่าใช้จ่ายทั้งหมด × 50% = ${formatCurrency(totalAll * 0.5)}` },
+        2: { amount: totalPAR * 0.5, label: `งวดที่ 2: (Proposal+Analysis+Result) × 50% = ${formatCurrency(totalPAR * 0.5)}` },
+        3: { amount: totalPub * 0.5, label: `งวดที่ 3: Publication Support × 50% = ${formatCurrency(totalPub * 0.5)}` },
+      };
+    }
     const installments = project.installments || [];
     const toUpdate = installments.filter((inst) => autoAmounts[inst.installmentNumber]);
-    if (toUpdate.length === 0) { alert('ไม่พบงวดที่ 1-3 ให้คำนวณ'); return; }
+    if (toUpdate.length === 0) { alert('ไม่พบงวดที่ตรงกับสูตรอัตโนมัติ'); return; }
     const summary = toUpdate.map((inst) => autoAmounts[inst.installmentNumber].label).join('\n');
-    if (!confirm(`คำนวณเงินงวดอัตโนมัติ:\n\n${summary}\n\nต้องการดำเนินการ?`)) return;
+    if (!confirm(`คำนวณเงินงวดอัตโนมัติ (${PROJECT_TYPE_LABELS[projectType]}):\n\n${summary}\n\nต้องการดำเนินการ?`)) return;
     toUpdate.forEach((inst) => {
       updateInstallment(project.id, inst.id, { amount: autoAmounts[inst.installmentNumber].amount });
     });
@@ -329,10 +360,17 @@ export default function ProjectsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">ประเภท (Type)</label>
-                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ProjectType })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ProjectType })} disabled={!!editingId} className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${editingId ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}>
                     <option value="doctor">{PROJECT_TYPE_LABELS.doctor}</option>
                     <option value="student">{PROJECT_TYPE_LABELS.student}</option>
                   </select>
+                  {!editingId && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      {form.type === 'student'
+                        ? 'Student: 3 กิจกรรม + 2 งวด งวดละ 50%'
+                        : 'Doctor: 4 กิจกรรม + 3 งวด (มัดจำ/บทความ/Submit)'}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
