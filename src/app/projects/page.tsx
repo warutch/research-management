@@ -49,8 +49,8 @@ function buildDefaultInstallments(type: ProjectType, acts: DefaultActivity[]): {
   if (type === 'student') {
     // Student: 2 งวด งวดละ 50% ของยอดรวม
     return [
-      { num: 1, name: 'งวดที่ 1 มัดจำ 50%', amount: totalAll * 0.5 },
-      { num: 2, name: 'งวดที่ 2 ส่งงาน 50%', amount: totalAll * 0.5 },
+      { num: 1, name: 'งวดที่ 1 ส่ง draft มัดจำ 50%', amount: totalAll * 0.5 },
+      { num: 2, name: 'งวดที่ 2 ส่งบทความฉบับสมบูรณ์', amount: totalAll * 0.5 },
     ];
   }
   // Doctor: เดิม — 3 งวด
