@@ -292,8 +292,7 @@ export default function ProjectsPage() {
     setShowPaymentForm(projectId);
   };
 
-  const handleActivityStatusChange = (projectId: string, activityId: string, activityName: string, newStatus: ProjectStatus) => {
-    if (!confirm(`เปลี่ยนสถานะ "${activityName}" เป็น "${getStatusLabel(newStatus)}"?`)) return;
+  const handleActivityStatusChange = (projectId: string, activityId: string, _activityName: string, newStatus: ProjectStatus) => {
     updateActivity(projectId, activityId, { status: newStatus });
 
     // คำนวณ project status จากกิจกรรมหลังเปลี่ยน (simulate ค่าใหม่เลย)
@@ -357,14 +356,13 @@ export default function ProjectsPage() {
                   <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={editingId ? 'grid grid-cols-2 gap-4' : ''}>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">ประเภท (Type)</label>
                   <select
                     value={form.type}
                     onChange={(e) => {
                       const newType = e.target.value as ProjectType;
-                      // ตอนสร้างใหม่ — ปรับ commission อัตโนมัติตามประเภท
                       const newCommission = editingId
                         ? form.commission
                         : (newType === 'student' ? STUDENT_DEFAULT_COMMISSION : 0);
@@ -384,27 +382,33 @@ export default function ProjectsPage() {
                     </p>
                   )}
                 </div>
+                {/* Status — แสดงเฉพาะตอนแก้ไข (โครงการใหม่ใช้ pending เริ่มต้น) */}
+                {editingId && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
+                    <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProjectStatus })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                      <option value="pending">รอดำเนินการ</option>
+                      <option value="in_progress">กำลังดำเนินการ</option>
+                      <option value="completed">เสร็จสิ้น</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+              {/* Commission — แสดงเฉพาะ Student หรือกรณี edit ที่ commission > 0 */}
+              {(form.type === 'student' || (editingId && (form.commission ?? 0) > 0)) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProjectStatus })} className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value="pending">รอดำเนินการ</option>
-                    <option value="in_progress">กำลังดำเนินการ</option>
-                    <option value="completed">เสร็จสิ้น</option>
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Commission (บาท)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.commission || ''}
+                    onChange={(e) => setForm({ ...form, commission: Number(e.target.value) || 0 })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">หักรายโครงการ (one-time) — จ่ายให้ผู้รับ &quot;Commission&quot; ในหน้าโอนตัง</p>
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Commission (บาท)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={form.commission || ''}
-                  onChange={(e) => setForm({ ...form, commission: Number(e.target.value) || 0 })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="0"
-                />
-                <p className="text-xs text-gray-400 mt-1">หัก commission รายโครงการ (one-time) — จ่ายให้ผู้รับ &quot;Commission&quot; ในหน้าโอนตัง</p>
-              </div>
+              )}
             </div>
             <div className="flex justify-end gap-3 p-5 border-t">
               <button onClick={() => { setShowForm(false); setEditingId(null); }} className="px-4 py-2 text-sm text-gray-600">ยกเลิก</button>
@@ -523,7 +527,17 @@ export default function ProjectsPage() {
                       <div className="p-5">
                         <div className="flex items-center justify-between mb-4">
                           <p className="text-xs text-gray-500">* หักManager + Pool money (ปรับ % รายกิจกรรมได้)</p>
-                          <button onClick={() => { setShowActivityForm(project.id); setActivityForm(emptyActivity()); setEditingActivityId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มกิจกรรม</button>
+                          <button onClick={() => {
+                            // Smart default: ใช้ sharePercent + horsePercent + poolPercent ของกิจกรรมล่าสุดในโครงการ
+                            // (ถ้าไม่มีกิจกรรม fallback เป็น 0 ทั้งหมด)
+                            const lastAct = project.activities[project.activities.length - 1];
+                            const defaults: typeof activityForm = lastAct
+                              ? { name: '', cost: 0, sharePercent: { ...lastAct.sharePercent }, horsePercent: getHorsePercent(lastAct), poolPercent: getPoolPercent(lastAct), status: 'pending' }
+                              : emptyActivity();
+                            setShowActivityForm(project.id);
+                            setActivityForm(defaults);
+                            setEditingActivityId(null);
+                          }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มกิจกรรม</button>
                         </div>
 
                         {showActivityForm === project.id && (
@@ -738,20 +752,8 @@ export default function ProjectsPage() {
                                   <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท)</label>
                                   <input type="number" value={installmentForm.amount || ''} onChange={(e) => setInstallmentForm({ ...installmentForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
                                 </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">สถานะ</label>
-                                    <select value={installmentForm.status} onChange={(e) => setInstallmentForm({ ...installmentForm, status: e.target.value as 'pending' | 'paid' })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
-                                      <option value="pending">รอชำระ</option>
-                                      <option value="paid">ชำระแล้ว</option>
-                                    </select>
-                                  </div>
-                                  {installmentForm.status === 'paid' && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
-                                      <input type="date" value={installmentForm.paidDate} onChange={(e) => setInstallmentForm({ ...installmentForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                                    </div>
-                                  )}
+                                <div className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                                  💡 สถานะและวันที่โอนจะ sync อัตโนมัติเมื่อบันทึก &quot;รายการชำระเงิน&quot; ในแท็บ &quot;รับเงิน&quot;
                                 </div>
                               </div>
                               <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
@@ -864,14 +866,23 @@ export default function ProjectsPage() {
                                       const paidSoFar = getInstallmentPaid(inst.id, editingPaymentId || undefined);
                                       const remaining = inst.amount - paidSoFar;
                                       const isCurrentEdit = editingPaymentId && paymentForm.installmentId === inst.id;
+                                      const statusIcon = fullyPaid ? '✅' : paidSoFar > 0 ? '🔵' : '⏳';
+                                      const amountText = fullyPaid
+                                        ? `${formatCurrency(inst.amount)} ครบ`
+                                        : paidSoFar > 0
+                                          ? `คงเหลือ ${formatCurrency(remaining)}/${formatCurrency(inst.amount)}`
+                                          : formatCurrency(inst.amount);
                                       return (
                                         <option key={inst.id} value={inst.id} disabled={fullyPaid && !isCurrentEdit}>
-                                          งวดที่ {inst.installmentNumber}: {inst.name} ({formatCurrency(inst.amount)})
-                                          {fullyPaid ? ' ✅ ชำระครบแล้ว' : remaining < inst.amount ? ` [คงเหลือ ${formatCurrency(remaining)}]` : ''}
+                                          {statusIcon} งวด {inst.installmentNumber} — {amountText}
                                         </option>
                                       );
                                     })}
                                   </select>
+                                  {paymentForm.installmentId && (() => {
+                                    const inst = installments.find((i) => i.id === paymentForm.installmentId);
+                                    return inst ? <p className="text-xs text-gray-500 mt-1">{inst.name}</p> : null;
+                                  })()}
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                   <div>
