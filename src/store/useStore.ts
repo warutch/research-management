@@ -23,6 +23,7 @@ import {
   quotationToDb, quotationFromDb,
   trackingActivityToDb, trackingActivityFromDb,
   markWorkspaceColumnMissing, isWorkspaceMissingError,
+  markCommissionColumnMissing, isCommissionMissingError,
 } from '@/lib/supabaseSync';
 
 // ============================================================
@@ -347,7 +348,12 @@ export const useStore = create<AppState>()((set, get) => ({
     supabase.from('projects').insert(projectToDb(project)).then(({ error }) => {
       if (error && isWorkspaceMissingError(error)) {
         markWorkspaceColumnMissing();
-        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry)', e2));
+        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry workspace)', e2));
+        return;
+      }
+      if (error && isCommissionMissingError(error)) {
+        markCommissionColumnMissing();
+        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry commission)', e2));
         return;
       }
       logErr('addProject', error);
@@ -365,7 +371,12 @@ export const useStore = create<AppState>()((set, get) => ({
     supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error }) => {
       if (error && isWorkspaceMissingError(error)) {
         markWorkspaceColumnMissing();
-        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry)', e2));
+        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry workspace)', e2));
+        return;
+      }
+      if (error && isCommissionMissingError(error)) {
+        markCommissionColumnMissing();
+        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry commission)', e2));
         return;
       }
       logErr('updateProject', error);

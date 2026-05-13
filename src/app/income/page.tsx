@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, HORSE_PERCENT, POOL_PERCENT, RecipientId, ALL_SHARE_NAMES, getHorsePercent, getPoolPercent } from '@/types';
+import { MEMBERS, RecipientId, ALL_SHARE_NAMES, getCommission, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -56,13 +56,9 @@ export default function IncomePage() {
 
   const filteredProjects = projects;
 
-  // รายรับที่คาดว่าจะได้ (จากกิจกรรม)
+  // รายรับที่คาดว่าจะได้ (จากกิจกรรม) — ใช้ NET (หลังหัก commission)
   const memberIncomes = MEMBERS.map((member) => {
-    const expectedIncome = filteredProjects.reduce((total, project) => {
-      return total + project.activities.reduce((actTotal, activity) => {
-        return actTotal + (activity.cost * (activity.sharePercent[member.id] || 0)) / 100;
-      }, 0);
-    }, 0);
+    const expectedIncome = filteredProjects.reduce((total, project) => total + calcMemberNetIncome(project, member.id), 0);
 
     // รายรับจริงที่ได้รับ (จาก distributions)
     const actualIncome = distributions
@@ -70,9 +66,7 @@ export default function IncomePage() {
       .reduce((s, d) => s + d.amount, 0);
 
     const projectBreakdown = filteredProjects.map((project) => {
-      const expected = project.activities.reduce((actTotal, activity) => {
-        return actTotal + (activity.cost * (activity.sharePercent[member.id] || 0)) / 100;
-      }, 0);
+      const expected = calcMemberNetIncome(project, member.id);
       const actual = distributions
         .filter((d) => d.recipientId === member.id && d.projectId === project.id)
         .reduce((s, d) => s + d.amount, 0);
@@ -90,23 +84,25 @@ export default function IncomePage() {
     return { ...member, expectedIncome, actualIncome, projectBreakdown };
   });
 
-  // Manager + Pool money
-  const horseExpected = filteredProjects.reduce((total, project) => {
-    return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * getHorsePercent(activity)) / 100, 0);
-  }, 0);
+  // Manager + Pool money — ใช้ NET (หลังหัก commission)
+  const horseExpected = filteredProjects.reduce((total, project) => total + calcHorseNetIncome(project), 0);
   const horseActual = distributions
     .filter((d) => d.recipientId === 'horse' && filteredProjects.some((p) => p.id === d.projectId))
     .reduce((s, d) => s + d.amount, 0);
 
-  const poolExpected = filteredProjects.reduce((total, project) => {
-    return total + project.activities.reduce((actTotal, activity) => actTotal + (activity.cost * getPoolPercent(activity)) / 100, 0);
-  }, 0);
+  const poolExpected = filteredProjects.reduce((total, project) => total + calcPoolNetIncome(project), 0);
   const poolActual = distributions
     .filter((d) => d.recipientId === 'pool' && filteredProjects.some((p) => p.id === d.projectId))
     .reduce((s, d) => s + d.amount, 0);
 
-  const grandExpected = memberIncomes.reduce((sum, m) => sum + m.expectedIncome, 0) + horseExpected + poolExpected;
-  const grandActual = memberIncomes.reduce((sum, m) => sum + m.actualIncome, 0) + horseActual + poolActual;
+  // Commission — รวมรายโครงการ (one-time)
+  const commissionExpected = filteredProjects.reduce((total, project) => total + getCommission(project), 0);
+  const commissionActual = distributions
+    .filter((d) => d.recipientId === 'commission' && filteredProjects.some((p) => p.id === d.projectId))
+    .reduce((s, d) => s + d.amount, 0);
+
+  const grandExpected = memberIncomes.reduce((sum, m) => sum + m.expectedIncome, 0) + horseExpected + poolExpected + commissionExpected;
+  const grandActual = memberIncomes.reduce((sum, m) => sum + m.actualIncome, 0) + horseActual + poolActual + commissionActual;
 
   // เงินที่ลูกค้าชำระมาแล้ว
   const totalClientPaid = filteredProjects.reduce((s, p) => {
@@ -135,6 +131,13 @@ export default function IncomePage() {
       total: poolExpected,
       color: '#6b7280',
     },
+    ...(commissionExpected > 0 ? [{
+      name: 'Commission',
+      actual: commissionActual,
+      remaining: Math.max(0, commissionExpected - commissionActual),
+      total: commissionExpected,
+      color: '#e11d48',
+    }] : []),
   ];
 
   return (
@@ -307,7 +310,7 @@ export default function IncomePage() {
       {/* Manager Breakdown */}
       {(() => {
         const horseBreakdown = filteredProjects.map((project) => {
-          const expected = project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0);
+          const expected = calcHorseNetIncome(project);
           const actual = distributions.filter((d) => d.recipientId === 'horse' && d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
           const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
@@ -384,7 +387,7 @@ export default function IncomePage() {
       {/* Pool money Breakdown */}
       {(() => {
         const poolBreakdown = filteredProjects.map((project) => {
-          const expected = project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0);
+          const expected = calcPoolNetIncome(project);
           const actual = distributions.filter((d) => d.recipientId === 'pool' && d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
           const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);

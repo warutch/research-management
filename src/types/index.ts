@@ -31,8 +31,8 @@ export const MEMBERS: Member[] = [
   { id: 'ton', name: 'Coordinator', shortName: 'CO', role: 'ประสานงานโครงการ', color: '#10b981' },
 ];
 
-// ชื่อที่แสดงในระบบ (รวม Manager + Pool money)
-export type ShareId = MemberId | 'horse' | 'pool';
+// ชื่อที่แสดงในระบบ (รวม Manager + Pool money + Commission)
+export type ShareId = MemberId | 'horse' | 'pool' | 'commission';
 
 export const ALL_SHARE_NAMES: Record<ShareId, string> = {
   tangmo: 'Specialist',
@@ -40,6 +40,7 @@ export const ALL_SHARE_NAMES: Record<ShareId, string> = {
   ton: 'Coordinator',
   horse: 'Manager',
   pool: 'Pool money',
+  commission: 'Commission',
 };
 
 export const ALL_SHORT_NAMES: Record<ShareId, string> = {
@@ -48,7 +49,11 @@ export const ALL_SHORT_NAMES: Record<ShareId, string> = {
   ton: 'CO',
   horse: 'MG',
   pool: 'PM',
+  commission: 'CM',
 };
+
+// Commission default ของโครงการ Student
+export const STUDENT_DEFAULT_COMMISSION = 1000;
 
 // กิจกรรมมาตรฐานของโครงการวิจัย
 export const STANDARD_ACTIVITIES = [
@@ -111,6 +116,62 @@ export interface Project {
   installments: PaymentInstallment[];
   createdAt: string;
   type: ProjectType; // 'doctor' | 'student'
+  commission?: number; // ค่า commission รายโครงการ (one-time) — default 0; Student default 1000
+}
+
+// Helper: ดึงค่า commission ของโครงการ (fallback 0)
+export function getCommission(p: Pick<Project, 'commission'>): number {
+  return p.commission ?? 0;
+}
+
+// ============ Income calculation helpers (รวมการหัก commission แบบ proportional) ============
+// commission หักรายโครงการ จากผู้รับทุกคน (Specialist/Analyst/Coordinator/Manager/Pool)
+// ตามสัดส่วนของรายได้ดิบในโครงการ — คนได้มากจะถูกหักมาก
+
+// รายได้รวมของโครงการ (sum cost ของทุก activity)
+export function calcProjectTotalCost(project: Project): number {
+  return project.activities.reduce((s, a) => s + a.cost, 0);
+}
+
+// อัตราส่วนสุทธิหลังหัก commission (0..1) — 1 ถ้าไม่มี commission, น้อยลงถ้ามี
+export function calcNetRatio(project: Project): number {
+  const total = calcProjectTotalCost(project);
+  const commission = getCommission(project);
+  if (total <= 0 || commission <= 0) return 1;
+  return Math.max(0, (total - commission) / total);
+}
+
+// รายได้ดิบของสมาชิก (ยังไม่หัก commission) — สำหรับโครงการ
+export function calcMemberRawIncome(project: Project, memberId: MemberId): number {
+  return project.activities.reduce((s, a) => s + (a.cost * (a.sharePercent[memberId] || 0)) / 100, 0);
+}
+export function calcHorseRawIncome(project: Project): number {
+  return project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0);
+}
+export function calcPoolRawIncome(project: Project): number {
+  return project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0);
+}
+
+// รายได้สุทธิ (หลังหัก commission proportional) — สำหรับสมาชิก/Manager/Pool
+export function calcMemberNetIncome(project: Project, memberId: MemberId): number {
+  return calcMemberRawIncome(project, memberId) * calcNetRatio(project);
+}
+export function calcHorseNetIncome(project: Project): number {
+  return calcHorseRawIncome(project) * calcNetRatio(project);
+}
+export function calcPoolNetIncome(project: Project): number {
+  return calcPoolRawIncome(project) * calcNetRatio(project);
+}
+
+// ส่วนที่ถูกหักจาก commission (proportional) — สำหรับแสดงในตาราง
+export function calcMemberCommissionShare(project: Project, memberId: MemberId): number {
+  return calcMemberRawIncome(project, memberId) - calcMemberNetIncome(project, memberId);
+}
+export function calcHorseCommissionShare(project: Project): number {
+  return calcHorseRawIncome(project) - calcHorseNetIncome(project);
+}
+export function calcPoolCommissionShare(project: Project): number {
+  return calcPoolRawIncome(project) - calcPoolNetIncome(project);
 }
 
 export interface QuotationItem {
@@ -149,7 +210,7 @@ export interface PaymentRecord {
   createdAt: string;
 }
 
-export type RecipientId = MemberId | 'horse' | 'pool';
+export type RecipientId = MemberId | 'horse' | 'pool' | 'commission';
 
 export interface DistributionRecord {
   id: string;

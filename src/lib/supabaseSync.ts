@@ -25,6 +25,24 @@ export function isWorkspaceMissingError(e: unknown): boolean {
   return /workspace/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
 }
 
+// เช่นเดียวกับ workspace — กัน error PGRST204 ถ้า DB ยังไม่มี column 'commission'
+let commissionColumnMissing = false;
+export function markCommissionColumnMissing() {
+  if (!commissionColumnMissing) {
+    commissionColumnMissing = true;
+    console.warn(
+      '[supabaseSync] DB projects.commission column not found — ปิดการ sync commission field\n' +
+      'กรุณารัน migration ใน supabase/schema.sql เพื่อเปิดใช้ Commission ของโครงการ Student'
+    );
+  }
+}
+export function isCommissionMissingError(e: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = e as any;
+  const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
+  return /commission/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+}
+
 // ================================================================
 // Helpers แปลงข้อมูลระหว่าง camelCase (TypeScript) ↔ snake_case (DB)
 // ================================================================
@@ -32,7 +50,8 @@ export function isWorkspaceMissingError(e: unknown): boolean {
 // --- Project ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function projectToDb(p: Project): any {
-  const base = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base: any = {
     id: p.id,
     project_code: p.projectCode,
     name: p.name,
@@ -46,9 +65,8 @@ export function projectToDb(p: Project): any {
     created_at: p.createdAt,
   };
   // ส่ง workspace เฉพาะถ้า DB มี column นี้ (ไม่งั้น PGRST204)
-  if (!workspaceColumnMissing) {
-    return { ...base, workspace: p.type };
-  }
+  if (!workspaceColumnMissing) base.workspace = p.type;
+  if (!commissionColumnMissing) base.commission = p.commission ?? 0;
   return base;
 }
 
@@ -67,6 +85,7 @@ export function projectFromDb(row: any): Project {
     installments: row.installments || [],
     createdAt: row.created_at || new Date().toISOString(),
     type: normalizeProjectType(row.workspace),
+    commission: row.commission == null ? 0 : Number(row.commission) || 0,
   };
 }
 

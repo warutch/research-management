@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome, calcMemberCommissionShare, calcHorseCommissionShare, calcPoolCommissionShare, calcNetRatio } from '@/types';
 import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
@@ -80,7 +80,7 @@ export default function ProjectsPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor' });
+  const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0 });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(sortedProjects[0]?.id || null);
   const [activeTab, setActiveTab] = useState<'activities' | 'installments' | 'payments' | 'distribution'>('activities');
 
@@ -122,7 +122,7 @@ export default function ProjectsPage() {
   };
 
   const openNewProjectForm = () => {
-    setForm({ projectCode: generateProjectCode(projects), name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor' });
+    setForm({ projectCode: generateProjectCode(projects), name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0 });
     setEditingId(null);
     setShowForm(true);
   };
@@ -149,7 +149,7 @@ export default function ProjectsPage() {
   };
 
   const handleEditProject = (project: Project) => {
-    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type });
+    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0 });
     setEditingId(project.id);
     setShowForm(true);
   };
@@ -360,14 +360,26 @@ export default function ProjectsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">ประเภท (Type)</label>
-                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ProjectType })} disabled={!!editingId} className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${editingId ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}>
+                  <select
+                    value={form.type}
+                    onChange={(e) => {
+                      const newType = e.target.value as ProjectType;
+                      // ตอนสร้างใหม่ — ปรับ commission อัตโนมัติตามประเภท
+                      const newCommission = editingId
+                        ? form.commission
+                        : (newType === 'student' ? STUDENT_DEFAULT_COMMISSION : 0);
+                      setForm({ ...form, type: newType, commission: newCommission });
+                    }}
+                    disabled={!!editingId}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${editingId ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}
+                  >
                     <option value="doctor">{PROJECT_TYPE_LABELS.doctor}</option>
                     <option value="student">{PROJECT_TYPE_LABELS.student}</option>
                   </select>
                   {!editingId && (
                     <p className="text-xs text-gray-400 mt-1">
                       {form.type === 'student'
-                        ? 'Student: 3 กิจกรรม + 2 งวด งวดละ 50%'
+                        ? `Student: 3 กิจกรรม + 2 งวด งวดละ 50% + Commission ฿${STUDENT_DEFAULT_COMMISSION.toLocaleString()}`
                         : 'Doctor: 4 กิจกรรม + 3 งวด (มัดจำ/บทความ/Submit)'}
                     </p>
                   )}
@@ -380,6 +392,18 @@ export default function ProjectsPage() {
                     <option value="completed">เสร็จสิ้น</option>
                   </select>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Commission (บาท)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.commission || ''}
+                  onChange={(e) => setForm({ ...form, commission: Number(e.target.value) || 0 })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="0"
+                />
+                <p className="text-xs text-gray-400 mt-1">หัก commission รายโครงการ (one-time) — จ่ายให้ผู้รับ &quot;Commission&quot; ในหน้าโอนตัง</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t">
@@ -628,13 +652,45 @@ export default function ProjectsPage() {
                                 <tr className="font-medium text-gray-900 bg-gray-50">
                                   <td className="py-2.5">รวม</td>
                                   <td className="py-2.5 text-right">{formatCurrency(totalCost)}</td>
-                                  {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((sum, a) => sum + (a.cost * (a.sharePercent[m.id] || 0)) / 100, 0))}</td>)}
-                                  <td className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((s, a) => s + (a.cost * getHorsePercent(a)) / 100, 0))}</td>
-                                  <td className="py-2.5 text-center text-xs">{formatCurrency(project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0))}</td>
+                                  {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(calcMemberRawIncome(project, m.id))}</td>)}
+                                  <td className="py-2.5 text-center text-xs">{formatCurrency(calcHorseRawIncome(project))}</td>
+                                  <td className="py-2.5 text-center text-xs">{formatCurrency(calcPoolRawIncome(project))}</td>
                                   <td /><td />
                                 </tr>
+                                {getCommission(project) > 0 && (
+                                  <>
+                                    <tr className="text-rose-700 bg-rose-50">
+                                      <td className="py-2 text-xs">
+                                        <span className="font-medium">หัก Commission</span>
+                                        <span className="ml-1 text-rose-400">(proportional — รวม ฿{getCommission(project).toLocaleString()})</span>
+                                      </td>
+                                      <td className="py-2 text-right text-xs">−{formatCurrency(getCommission(project))}</td>
+                                      {MEMBERS.map((m) => <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(calcMemberCommissionShare(project, m.id))}</td>)}
+                                      <td className="py-2 text-center text-xs">−{formatCurrency(calcHorseCommissionShare(project))}</td>
+                                      <td className="py-2 text-center text-xs">−{formatCurrency(calcPoolCommissionShare(project))}</td>
+                                      <td /><td />
+                                    </tr>
+                                    <tr className="font-semibold text-gray-900 bg-indigo-50 border-t-2 border-indigo-200">
+                                      <td className="py-2.5">รวมสุทธิ (หลังหัก commission)</td>
+                                      <td className="py-2.5 text-right">{formatCurrency(totalCost - getCommission(project))}</td>
+                                      {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(calcMemberNetIncome(project, m.id))}</td>)}
+                                      <td className="py-2.5 text-center text-xs">{formatCurrency(calcHorseNetIncome(project))}</td>
+                                      <td className="py-2.5 text-center text-xs">{formatCurrency(calcPoolNetIncome(project))}</td>
+                                      <td /><td />
+                                    </tr>
+                                  </>
+                                )}
                               </tbody>
                             </table>
+                            {getCommission(project) > 0 && (
+                              <div className="mt-3 flex items-center justify-between bg-rose-50 border border-rose-200 rounded-lg px-4 py-2.5">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="font-medium text-rose-700">{ALL_SHARE_NAMES.commission}</span>
+                                  <span className="text-xs text-rose-500">(หักรายโครงการ {Math.round((1 - calcNetRatio(project)) * 100 * 100) / 100}% จากทุกคนตามสัดส่วน)</span>
+                                </div>
+                                <span className="font-medium text-rose-700">{formatCurrency(getCommission(project))}</span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <p className="text-gray-400 text-sm text-center py-4">ยังไม่มีกิจกรรม</p>
@@ -922,16 +978,21 @@ export default function ProjectsPage() {
                           (() => {
                             const projectPaymentsAll = payments.filter((p) => p.projectId === project.id);
                             const totalPaidReal = projectPaymentsAll.reduce((s, p) => s + p.amount, 0);
+                            const commissionAmount = getCommission(project);
+                            const netRatio = calcNetRatio(project);
 
-                            // คำนวณส่วนแบ่งจากกิจกรรม
+                            // คำนวณส่วนแบ่งจากกิจกรรม (raw) + net หลังหัก commission
+                            // m.total = NET (ที่ต้องโอนจริง — หลังหัก commission)
+                            // m.rawTotal = RAW (ก่อนหัก) — ใช้ในตารางที่แสดง % รายกิจกรรม
                             const memberShares = MEMBERS.map((m) => {
                               const byActivity = project.activities.map((a) => ({
                                 activityName: a.name,
                                 percent: a.sharePercent[m.id] || 0,
                                 amount: (a.cost * (a.sharePercent[m.id] || 0)) / 100,
                               }));
-                              const total = byActivity.reduce((s, a) => s + a.amount, 0);
-                              return { ...m, byActivity, total };
+                              const rawTotal = byActivity.reduce((s, a) => s + a.amount, 0);
+                              const total = rawTotal * netRatio;
+                              return { ...m, byActivity, total, rawTotal };
                             });
 
                             const horseByActivity = project.activities.map((a) => ({
@@ -939,16 +1000,21 @@ export default function ProjectsPage() {
                               percent: getHorsePercent(a),
                               amount: (a.cost * getHorsePercent(a)) / 100,
                             }));
-                            const horseTotal = horseByActivity.reduce((s, a) => s + a.amount, 0);
+                            const horseRawTotal = horseByActivity.reduce((s, a) => s + a.amount, 0);
+                            const horseTotal = horseRawTotal * netRatio;
 
                             const poolByActivity = project.activities.map((a) => ({
                               activityName: a.name,
                               percent: getPoolPercent(a),
                               amount: (a.cost * getPoolPercent(a)) / 100,
                             }));
-                            const poolTotal = poolByActivity.reduce((s, a) => s + a.amount, 0);
+                            const poolRawTotal = poolByActivity.reduce((s, a) => s + a.amount, 0);
+                            const poolTotal = poolRawTotal * netRatio;
 
-                            const grandTotal = memberShares.reduce((s, m) => s + m.total, 0) + horseTotal + poolTotal;
+                            // grandTotal = ผลรวมที่ลูกค้าจ่ายทั้งหมด = totalCost ของ activities
+                            // = (net ของทุกคน) + commission
+                            const grandTotal = memberShares.reduce((s, m) => s + m.total, 0) + horseTotal + poolTotal + commissionAmount;
+                            const grandTotalRaw = memberShares.reduce((s, m) => s + m.rawTotal, 0) + horseRawTotal + poolRawTotal;
 
                             // สัดส่วนที่ต้องโอนจริง (ตาม % ของเงินที่รับมาแล้ว)
                             const paidRatio = grandTotal > 0 ? totalPaidReal / grandTotal : 0;
@@ -1035,6 +1101,28 @@ export default function ProjectsPage() {
                                             </div>
                                           );
                                         })()}
+                                        {/* Commission (เฉพาะโครงการที่กำหนด commission > 0) */}
+                                        {getCommission(project) > 0 && (() => {
+                                          const commTotal = getCommission(project);
+                                          const cPaid = distPaid('commission');
+                                          const cFull = cPaid >= commTotal;
+                                          const cRemaining = Math.max(0, commTotal - cPaid);
+                                          return (
+                                            <div className={`rounded-lg border p-3 text-center ${cFull ? 'bg-green-50 border-green-200' : 'border-rose-200 bg-rose-50'}`}>
+                                              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center bg-rose-500 text-white font-bold text-sm">CM</div>
+                                              <p className="text-sm text-gray-700 font-medium">Commission</p>
+                                              <p className="text-lg font-bold text-rose-600 mt-1">{formatCurrency(commTotal)}</p>
+                                              <p className="text-xs text-gray-400">หักรายโครงการ (one-time)</p>
+                                              {cPaid > 0 && <p className="text-xs text-green-600 mt-1">โอนแล้ว: {formatCurrency(cPaid)}</p>}
+                                              {!cFull && (
+                                                <div className="mt-2 px-2 py-1.5 bg-blue-50 rounded-md">
+                                                  <p className="text-sm text-blue-700 font-bold">ต้องโอน: {formatCurrency(cRemaining)}</p>
+                                                </div>
+                                              )}
+                                              {cFull && <p className="text-sm text-green-600 font-bold mt-2">✅ โอนครบแล้ว</p>}
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                       {totalPaidReal > 0 && (
                                         <div className="mt-3 p-3 bg-indigo-50 rounded-lg flex items-center justify-between text-sm">
@@ -1081,19 +1169,37 @@ export default function ProjectsPage() {
                                         </tr>
                                       ))}
                                       <tr className="font-bold text-gray-900 bg-gray-50 border-t-2 border-gray-300">
-                                        <td className="px-3 py-2">รวมทั้งหมด</td>
+                                        <td className="px-3 py-2">{commissionAmount > 0 ? 'รวม (ก่อนหัก commission)' : 'รวมทั้งหมด'}</td>
                                         <td className="px-3 py-2 text-right">{formatCurrency(totalCost)}</td>
-                                        {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.total)}</td>)}
-                                        <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseTotal)}</td>
-                                        <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolTotal)}</td>
+                                        {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.rawTotal)}</td>)}
+                                        <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseRawTotal)}</td>
+                                        <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolRawTotal)}</td>
                                       </tr>
+                                      {commissionAmount > 0 && (
+                                        <>
+                                          <tr className="text-rose-700 bg-rose-50">
+                                            <td className="px-3 py-1.5 text-xs">หัก Commission ({Math.round((1 - netRatio) * 10000) / 100}%)</td>
+                                            <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount)}</td>
+                                            {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - m.total)}</td>)}
+                                            <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - horseTotal)}</td>
+                                            <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - poolTotal)}</td>
+                                          </tr>
+                                          <tr className="font-bold text-indigo-900 bg-indigo-50 border-t-2 border-indigo-200">
+                                            <td className="px-3 py-2">รวมสุทธิ (ที่ต้องโอน)</td>
+                                            <td className="px-3 py-2 text-right">{formatCurrency(totalCost - commissionAmount)}</td>
+                                            {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.total)}</td>)}
+                                            <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseTotal)}</td>
+                                            <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolTotal)}</td>
+                                          </tr>
+                                        </>
+                                      )}
                                     </tbody>
                                   </table>
                                 </div>
 
                                 {/* แผนการโอนเงินแยกรายงวด (ย้ายขึ้นมา) */}
                                 <div className="bg-white rounded-lg border p-4">
-                                  <h5 className="text-sm font-semibold text-gray-700 mb-3">แผนการโอนเงินแยกรายงวด</h5>
+                                  <h5 className="text-sm font-semibold text-gray-700 mb-3">แผนการโอนเงินแยกรายงวด {commissionAmount > 0 && <span className="text-xs font-normal text-gray-500">(สุทธิ — หลังหัก commission)</span>}</h5>
                                   <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
                                       <thead>
@@ -1104,6 +1210,7 @@ export default function ProjectsPage() {
                                           {MEMBERS.map((m) => <th key={m.id} className="px-3 py-2 font-medium text-center">{m.name}</th>)}
                                           <th className="px-3 py-2 font-medium text-center">Manager</th>
                                           <th className="px-3 py-2 font-medium text-center">Pool money</th>
+                                          {commissionAmount > 0 && <th className="px-3 py-2 font-medium text-center text-rose-600">Commission</th>}
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -1122,6 +1229,7 @@ export default function ProjectsPage() {
                                               ))}
                                               <td className="px-3 py-2 text-center text-xs text-amber-600">{formatCurrency(horseTotal * instRatio)}</td>
                                               <td className="px-3 py-2 text-center text-xs text-gray-500">{formatCurrency(poolTotal * instRatio)}</td>
+                                              {commissionAmount > 0 && <td className="px-3 py-2 text-center text-xs text-rose-600">{formatCurrency(commissionAmount * instRatio)}</td>}
                                             </tr>
                                           );
                                         })}
@@ -1132,6 +1240,7 @@ export default function ProjectsPage() {
                                           {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.total)}</td>)}
                                           <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseTotal)}</td>
                                           <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolTotal)}</td>
+                                          {commissionAmount > 0 && <td className="px-3 py-2 text-center text-rose-600">{formatCurrency(commissionAmount)}</td>}
                                         </tr>
                                       </tbody>
                                     </table>
@@ -1162,11 +1271,25 @@ export default function ProjectsPage() {
                                         <div className="p-5 space-y-4">
                                           <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">ผู้รับเงิน *</label>
-                                            <select value={distForm.recipientId} onChange={(e) => setDistForm({ ...distForm, recipientId: e.target.value as RecipientId })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500">
+                                            <select
+                                              value={distForm.recipientId}
+                                              onChange={(e) => {
+                                                const rid = e.target.value as RecipientId | '';
+                                                // ถ้าเลือก Commission และยังไม่ได้ใส่จำนวน → auto-fill จาก project.commission
+                                                const autoAmount = rid === 'commission' && (!distForm.amount || distForm.amount === 0)
+                                                  ? getCommission(project)
+                                                  : distForm.amount;
+                                                setDistForm({ ...distForm, recipientId: rid as RecipientId, amount: autoAmount });
+                                              }}
+                                              className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                                            >
                                               <option value="">-- เลือกผู้รับเงิน --</option>
                                               {MEMBERS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                                               <option value="horse">Manager</option>
                                               <option value="pool">Pool money</option>
+                                              {getCommission(project) > 0 && (
+                                                <option value="commission">Commission ({formatCurrency(getCommission(project))})</option>
+                                              )}
                                             </select>
                                           </div>
                                           <div className="grid grid-cols-2 gap-3">
@@ -1264,6 +1387,12 @@ export default function ProjectsPage() {
                                               <span>Pool money</span>
                                               <span className={distByRecipient('pool') >= poolTotal && poolTotal > 0 ? 'text-green-600 font-medium' : ''}>{formatCurrency(distByRecipient('pool'))}/{formatCurrency(poolTotal)}</span>
                                             </div>
+                                            {commissionAmount > 0 && (
+                                              <div className="flex justify-between bg-white rounded px-2 py-1">
+                                                <span className="text-rose-700">Commission</span>
+                                                <span className={distByRecipient('commission') >= commissionAmount ? 'text-green-600 font-medium' : 'text-rose-600'}>{formatCurrency(distByRecipient('commission'))}/{formatCurrency(commissionAmount)}</span>
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
                                       </div>

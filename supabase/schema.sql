@@ -154,5 +154,10 @@ create index if not exists idx_quotations_workspace on quotations(workspace);
 create index if not exists idx_tracking_activities_workspace on tracking_activities(workspace);
 
 -- ================================================================
+-- 4. Migration: Commission (รายโครงการ — Student default 1000)
+-- ================================================================
+alter table projects add column if not exists commission numeric not null default 0;
+
+-- ================================================================
 -- เสร็จแล้ว! ไปสร้าง user accounts ที่ Authentication → Users
 -- ================================================================
