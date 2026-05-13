@@ -1036,13 +1036,14 @@ export default function ProjectsPage() {
                                 {(() => {
                                   const projDists = distributions.filter((d) => d.projectId === project.id);
                                   const distPaid = (rid: RecipientId) => projDists.filter((d) => d.recipientId === rid).reduce((s, d) => s + d.amount, 0);
+                                  const hasCommission = getCommission(project) > 0;
                                   return (
                                     <div className="bg-white rounded-lg border p-4">
                                       <div className="flex items-center justify-between mb-3">
                                         <h5 className="text-sm font-semibold text-gray-700">สรุปส่วนแบ่ง (จากเงินที่รับมาแล้ว {formatCurrency(totalPaidReal)})</h5>
                                         <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>
                                       </div>
-                                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                      <div className={`grid grid-cols-2 sm:grid-cols-3 ${hasCommission ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-3`}>
                                         {memberShares.map((m) => {
                                           const shouldPay = m.total * paidRatio;
                                           const alreadyPaid = distPaid(m.id);
