@@ -8,6 +8,7 @@ import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/li
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
+import { v4 as uuidv4 } from 'uuid';
 
 type ProjectForm = Omit<Project, 'id' | 'createdAt' | 'activities' | 'installments'>;
 
@@ -132,15 +133,26 @@ export default function ProjectsPage() {
     if (editingId) {
       updateProject(editingId, form);
     } else {
-      const projectId = addProject(form);
+      // Build full project (activities + installments) เพื่อ INSERT ครั้งเดียว
+      // กัน race condition กับ Supabase UPDATE หลังจาก INSERT
       const defaultActs = DEFAULT_ACTIVITIES_BY_TYPE[form.type];
-      defaultActs.forEach((act) => {
-        addActivity(projectId, { ...act, horsePercent: HORSE_PERCENT, poolPercent: POOL_PERCENT, status: 'pending' as ProjectStatus });
-      });
+      const activities: Activity[] = defaultActs.map((act) => ({
+        ...act,
+        id: uuidv4(),
+        horsePercent: HORSE_PERCENT,
+        poolPercent: POOL_PERCENT,
+        status: 'pending' as ProjectStatus,
+      }));
       const defaultInstallments = buildDefaultInstallments(form.type, defaultActs);
-      defaultInstallments.forEach((inst) => {
-        addInstallment(projectId, { installmentNumber: inst.num, name: inst.name, amount: inst.amount, status: 'pending', paidDate: '' });
-      });
+      const installments: PaymentInstallment[] = defaultInstallments.map((inst) => ({
+        id: uuidv4(),
+        installmentNumber: inst.num,
+        name: inst.name,
+        amount: inst.amount,
+        status: 'pending',
+        paidDate: '',
+      }));
+      const projectId = addProject({ ...form, activities, installments });
       setSelectedProjectId(projectId);
       setActiveTab('activities');
     }

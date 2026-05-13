@@ -64,7 +64,7 @@ interface AppState {
   resetStore: () => void;
 
   // Projects
-  addProject: (project: Omit<Project, 'id' | 'createdAt' | 'activities' | 'installments'>) => string;
+  addProject: (project: Omit<Project, 'id' | 'createdAt' | 'activities' | 'installments'> & { activities?: Activity[]; installments?: PaymentInstallment[] }) => string;
   updateProject: (id: string, data: Partial<Project>) => void;
   deleteProject: (id: string) => void;
 
@@ -338,7 +338,9 @@ export const useStore = create<AppState>()((set, get) => ({
   addProject: (projectData) => {
     const id = uuidv4();
     const project: Project = {
-      ...projectData, id, activities: [], installments: [],
+      ...projectData, id,
+      activities: projectData.activities || [],
+      installments: projectData.installments || [],
       createdAt: new Date().toISOString(),
     };
     set((state) => {
