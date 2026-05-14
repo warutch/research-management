@@ -5,6 +5,9 @@ import { useStore } from '@/store/useStore';
 import { MEMBERS, RecipientId, ALL_SHARE_NAMES, getCommission, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
+import { toast } from '@/components/Toast';
+import { Modal } from '@/components/Modal';
+import { Tooltip as InfoTip, TooltipRow } from '@/components/Tooltip';
 import {
   BarChart,
   Bar,
@@ -27,6 +30,39 @@ export default function IncomePage() {
   const [distForm, setDistForm] = useState({ amount: 0, paidDate: '', slipUrl: '', slipUrls: [] as string[], note: '' });
   const [viewSlipUrl, setViewSlipUrl] = useState<string | null>(null);
 
+  // Bulk-distribute state
+  type BulkProject = { projectId: string; projectName: string; client: string; outstanding: number };
+  const [bulkModal, setBulkModal] = useState<{ recipientId: RecipientId; recipientName: string; projects: BulkProject[]; selected: Record<string, boolean>; paidDate: string } | null>(null);
+  const openBulkDistModal = (recipientId: RecipientId, recipientName: string, projects: { projectId: string; projectName: string; client: string; outstanding: number }[]) => {
+    const today = new Date();
+    const dStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const selected: Record<string, boolean> = {};
+    projects.forEach((p) => { selected[p.projectId] = true; });
+    setBulkModal({ recipientId, recipientName, projects, selected, paidDate: dStr });
+  };
+  const handleBulkSubmit = () => {
+    if (!bulkModal) return;
+    const picked = bulkModal.projects.filter((p) => bulkModal.selected[p.projectId]);
+    if (picked.length === 0) {
+      toast.error('กรุณาเลือกอย่างน้อย 1 โครงการ');
+      return;
+    }
+    picked.forEach((p) => {
+      addDistribution({
+        projectId: p.projectId,
+        recipientId: bulkModal.recipientId,
+        amount: Math.round(p.outstanding * 100) / 100,
+        paidDate: bulkModal.paidDate,
+        slipUrl: '',
+        slipUrls: [],
+        note: '',
+      });
+    });
+    const total = picked.reduce((s, p) => s + p.outstanding, 0);
+    toast.success(`โอน ${formatCurrency(total)} ให้ ${bulkModal.recipientName} ใน ${picked.length} โครงการเรียบร้อย`);
+    setBulkModal(null);
+  };
+
   const openDistModal = (recipientId: RecipientId, projectId: string, projectName: string, maxAmount: number) => {
     const today = new Date();
     const dStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -37,7 +73,7 @@ export default function IncomePage() {
   const handleSaveDist = () => {
     if (!distModal) return;
     if (!distForm.amount || distForm.amount <= 0) {
-      alert('กรุณาระบุจำนวนเงิน');
+      toast.error('กรุณาระบุจำนวนเงิน');
       return;
     }
     addDistribution({
@@ -49,6 +85,7 @@ export default function IncomePage() {
       slipUrls: distForm.slipUrls,
       note: distForm.note,
     });
+    toast.success(`บันทึกการโอน ${formatCurrency(distForm.amount)} ให้ ${ALL_SHARE_NAMES[distModal.recipientId]} เรียบร้อย`);
     setDistModal(null);
   };
 
@@ -81,25 +118,50 @@ export default function IncomePage() {
       return { projectId: project.id, projectName: project.name, client: project.client, expected, actual, shouldPay, outstanding, overpaid };
     }).filter((p) => p.expected > 0 || p.actual > 0);
 
-    return { ...member, expectedIncome, actualIncome, projectBreakdown };
+    // คงค้าง = ผลรวม "ต้องโอน − โอนแล้ว" รายโครงการ (คิดเฉพาะที่ลูกค้าชำระมาแล้ว)
+    const outstandingPayable = projectBreakdown.reduce((s, p) => s + p.outstanding, 0);
+    const shouldPayTotal = projectBreakdown.reduce((s, p) => s + p.shouldPay, 0);
+
+    return { ...member, expectedIncome, actualIncome, projectBreakdown, outstandingPayable, shouldPayTotal };
   });
 
-  // Manager + Pool money — ใช้ NET (หลังหัก commission)
-  const horseExpected = filteredProjects.reduce((total, project) => total + calcHorseNetIncome(project), 0);
-  const horseActual = distributions
-    .filter((d) => d.recipientId === 'horse' && filteredProjects.some((p) => p.id === d.projectId))
-    .reduce((s, d) => s + d.amount, 0);
+  // Helper: คำนวณ "ต้องโอน" รวมของ recipient (horse/pool/commission) ตามสัดส่วน client paid
+  const computeRecipientStats = (getExpected: (p: typeof filteredProjects[number]) => number, rid: RecipientId) => {
+    let expected = 0;
+    let actual = 0;
+    let shouldPay = 0;
+    for (const project of filteredProjects) {
+      const exp = getExpected(project);
+      expected += exp;
+      const act = distributions
+        .filter((d) => d.recipientId === rid && d.projectId === project.id)
+        .reduce((s, d) => s + d.amount, 0);
+      actual += act;
+      const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
+      const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
+      const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
+      shouldPay += exp * paidRatio;
+    }
+    const outstandingPayable = Math.max(0, shouldPay - actual);
+    return { expected, actual, shouldPay, outstandingPayable };
+  };
 
-  const poolExpected = filteredProjects.reduce((total, project) => total + calcPoolNetIncome(project), 0);
-  const poolActual = distributions
-    .filter((d) => d.recipientId === 'pool' && filteredProjects.some((p) => p.id === d.projectId))
-    .reduce((s, d) => s + d.amount, 0);
+  // Manager + Pool money — ใช้ NET (หลังหัก commission)
+  const horseStats = computeRecipientStats(calcHorseNetIncome, 'horse');
+  const horseExpected = horseStats.expected;
+  const horseActual = horseStats.actual;
+  const horseOutstandingPayable = horseStats.outstandingPayable;
+
+  const poolStats = computeRecipientStats(calcPoolNetIncome, 'pool');
+  const poolExpected = poolStats.expected;
+  const poolActual = poolStats.actual;
+  const poolOutstandingPayable = poolStats.outstandingPayable;
 
   // Commission — รวมรายโครงการ (one-time)
-  const commissionExpected = filteredProjects.reduce((total, project) => total + getCommission(project), 0);
-  const commissionActual = distributions
-    .filter((d) => d.recipientId === 'commission' && filteredProjects.some((p) => p.id === d.projectId))
-    .reduce((s, d) => s + d.amount, 0);
+  const commissionStats = computeRecipientStats((p) => getCommission(p), 'commission');
+  const commissionExpected = commissionStats.expected;
+  const commissionActual = commissionStats.actual;
+  const commissionOutstandingPayable = commissionStats.outstandingPayable;
 
   const grandExpected = memberIncomes.reduce((sum, m) => sum + m.expectedIncome, 0) + horseExpected + poolExpected + commissionExpected;
   const grandActual = memberIncomes.reduce((sum, m) => sum + m.actualIncome, 0) + horseActual + poolActual + commissionActual;
@@ -163,9 +225,48 @@ export default function IncomePage() {
             </div>
             <div className="flex items-center gap-2">
               <TrendingUp size={14} className="text-gray-400" />
-              <span className="text-xs text-gray-500">คาดว่าจะได้</span>
+              <InfoTip
+                content={(
+                  <div className="space-y-1 min-w-[200px]">
+                    <p className="font-medium text-white mb-1">คาดว่าจะได้</p>
+                    <p className="text-gray-300">ส่วนแบ่งสุทธิทั้งหมดของ {member.name} จากทุกโครงการ (รวมที่ลูกค้ายังไม่จ่ายมา)</p>
+                  </div>
+                )}
+              >
+                <span className="text-xs text-gray-500 underline decoration-dotted underline-offset-2 cursor-help">คาดว่าจะได้</span>
+              </InfoTip>
               <span className="text-sm font-medium text-gray-500 ml-auto">{formatCurrency(member.expectedIncome)}</span>
             </div>
+            {(() => {
+              const outstanding = member.outstandingPayable;
+              const futureRemaining = Math.max(0, member.expectedIncome - member.actualIncome - outstanding); // ส่วนที่รอลูกค้าจ่ายอีก
+              const breakdown = (
+                <div className="space-y-1 min-w-[240px]">
+                  <p className="font-medium text-white mb-1.5 border-b border-gray-700 pb-1">คงค้าง — รายละเอียด</p>
+                  <p className="text-[11px] text-gray-400 mb-1">คิดจากที่ลูกค้าจ่ายเข้ามาเท่านั้น</p>
+                  <TooltipRow label={`ลูกค้าจ่ายแล้ว → ส่วนของ ${member.name}`} value={formatCurrency(member.shouldPayTotal)} />
+                  <TooltipRow label="โอนให้สมาชิกแล้ว" value={formatCurrency(member.actualIncome)} accent="green" />
+                  <TooltipRow label="คงค้าง (ที่ต้องโอนตอนนี้)" value={formatCurrency(outstanding)} accent={outstanding > 0 ? 'amber' : 'green'} />
+                  {futureRemaining > 0 && <TooltipRow label="รอลูกค้าจ่ายอีก" value={formatCurrency(futureRemaining)} accent="gray" />}
+                </div>
+              );
+              return outstanding > 0 ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-3.5 h-3.5 inline-block" />
+                  <InfoTip content={breakdown}>
+                    <span className="text-xs text-amber-600 underline decoration-dotted underline-offset-2 cursor-help">คงค้าง</span>
+                  </InfoTip>
+                  <span className="text-sm font-semibold text-amber-600 ml-auto">{formatCurrency(outstanding)}</span>
+                </div>
+              ) : member.expectedIncome > 0 && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-3.5 h-3.5 inline-block" />
+                  <InfoTip content={breakdown}>
+                    <span className="text-xs text-green-600 underline decoration-dotted underline-offset-2 cursor-help">✅ โอนครบตามยอด</span>
+                  </InfoTip>
+                </div>
+              );
+            })()}
             {member.expectedIncome > 0 && (
               <div className="mt-2">
                 <div className="flex-1 bg-gray-100 rounded-full h-1.5">
@@ -173,32 +274,94 @@ export default function IncomePage() {
                 </div>
               </div>
             )}
-            <p className="text-xs text-gray-400 mt-1">{member.projectBreakdown.length} โครงการ</p>
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-xs text-gray-400">{member.projectBreakdown.length} โครงการ</p>
+              {(() => {
+                const outstandingProjects = member.projectBreakdown.filter((p) => p.outstanding > 0);
+                if (outstandingProjects.length === 0) return null;
+                return (
+                  <button
+                    onClick={() => openBulkDistModal(member.id, member.name, outstandingProjects)}
+                    className="text-xs px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-medium"
+                    title={`โอนยอดคงค้างให้ ${member.name} ${outstandingProjects.length} โครงการ`}
+                  >
+                    โอนทั้งหมด ({outstandingProjects.length})
+                  </button>
+                );
+              })()}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Horse + Pool */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-amber-900">Manager</p>
+      {/* Horse + Pool + Commission */}
+      {(() => {
+        const renderRecipientCard = (
+          name: string,
+          actual: number,
+          expected: number,
+          outstanding: number,
+          colorClass: { bg: string; text: string; strong: string; expectedText: string },
+        ) => {
+          const futureRemaining = Math.max(0, expected - actual - outstanding);
+          const shouldPay = actual + outstanding;
+          const breakdown = (
+            <div className="space-y-1 min-w-[240px]">
+              <p className="font-medium text-white mb-1.5 border-b border-gray-700 pb-1">{name} — รายละเอียด</p>
+              <p className="text-[11px] text-gray-400 mb-1">คงค้างคิดจากที่ลูกค้าจ่ายเข้ามาเท่านั้น</p>
+              <TooltipRow label="ลูกค้าจ่ายแล้ว → ส่วนของ ผู้รับ" value={formatCurrency(shouldPay)} />
+              <TooltipRow label="โอนแล้ว" value={formatCurrency(actual)} accent="green" />
+              <TooltipRow label="คงค้าง" value={formatCurrency(outstanding)} accent={outstanding > 0 ? 'amber' : 'green'} />
+              {futureRemaining > 0 && <TooltipRow label="รอลูกค้าจ่ายอีก" value={formatCurrency(futureRemaining)} accent="gray" />}
+              <TooltipRow label="รวมคาดว่าจะได้" value={formatCurrency(expected)} />
+            </div>
+          );
+          return (
+            <div className={`${colorClass.bg} rounded-xl border p-4 shadow-sm`}>
+              <div className="flex items-center justify-between mb-2">
+                <p className={`font-medium ${colorClass.strong}`}>{name}</p>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className={colorClass.text}>รับจริง: <strong className="text-green-600">{formatCurrency(actual)}</strong></span>
+                <InfoTip content={breakdown}>
+                  <span className={`${colorClass.expectedText} underline decoration-dotted underline-offset-2 cursor-help`}>
+                    คาดว่าจะได้: <strong>{formatCurrency(expected)}</strong>
+                  </span>
+                </InfoTip>
+              </div>
+              {outstanding > 0 && (
+                <div className={`mt-1.5 text-xs ${colorClass.text} font-medium`}>
+                  <InfoTip content={breakdown}>
+                    <span className="underline decoration-dotted underline-offset-2 cursor-help">คงค้าง:</span>
+                  </InfoTip> {formatCurrency(outstanding)}
+                </div>
+              )}
+            </div>
+          );
+        };
+        return (
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${commissionExpected > 0 ? 'lg:grid-cols-3' : ''} gap-4`}>
+            {renderRecipientCard('Manager', horseActual, horseExpected, horseOutstandingPayable, {
+              bg: 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200',
+              text: 'text-amber-700',
+              strong: 'text-amber-900',
+              expectedText: 'text-amber-600',
+            })}
+            {renderRecipientCard('Pool money', poolActual, poolExpected, poolOutstandingPayable, {
+              bg: 'bg-gradient-to-r from-gray-50 to-slate-50 border-gray-200',
+              text: 'text-gray-700',
+              strong: 'text-gray-900',
+              expectedText: 'text-gray-600',
+            })}
+            {commissionExpected > 0 && renderRecipientCard('Commission', commissionActual, commissionExpected, commissionOutstandingPayable, {
+              bg: 'bg-gradient-to-r from-rose-50 to-pink-50 border-rose-200',
+              text: 'text-rose-700',
+              strong: 'text-rose-900',
+              expectedText: 'text-rose-600',
+            })}
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-amber-700">รับจริง: <strong className="text-green-600">{formatCurrency(horseActual)}</strong></span>
-            <span className="text-amber-600">คาดว่าจะได้: <strong>{formatCurrency(horseExpected)}</strong></span>
-          </div>
-        </div>
-        <div className="bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-gray-900">Pool money</p>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-700">รับจริง: <strong className="text-green-600">{formatCurrency(poolActual)}</strong></span>
-            <span className="text-gray-600">คาดว่าจะได้: <strong>{formatCurrency(poolExpected)}</strong></span>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Grand Total */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -491,11 +654,15 @@ export default function IncomePage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท) *</label>
                   <input
                     type="number"
+                    min={0}
                     value={distForm.amount || ''}
                     onChange={(e) => setDistForm({ ...distForm, amount: Number(e.target.value) })}
-                    className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 ${distForm.amount > 0 ? '' : 'border-amber-300 bg-amber-50/40'}`}
                     placeholder="0"
                   />
+                  {(!distForm.amount || distForm.amount <= 0) && (
+                    <p className="text-xs text-amber-600 mt-1">กรุณาระบุจำนวนเงินที่มากกว่า 0</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
@@ -529,13 +696,95 @@ export default function IncomePage() {
             </div>
             <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
               <button onClick={() => setDistModal(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
-              <button onClick={handleSaveDist} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 shadow">
+              <button
+                onClick={handleSaveDist}
+                disabled={!distForm.amount || distForm.amount <= 0}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 shadow disabled:opacity-50 disabled:cursor-not-allowed disabled:from-gray-400 disabled:to-gray-500"
+              >
                 <Save size={16} /> บันทึก
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Bulk distribute modal */}
+      <Modal
+        open={!!bulkModal}
+        onClose={() => setBulkModal(null)}
+        size="lg"
+        title={bulkModal ? `โอนยอดคงค้างให้ ${bulkModal.recipientName}` : ''}
+        description={bulkModal ? `เลือกโครงการที่ต้องการบันทึกการโอน (${bulkModal.projects.length} โครงการมีคงค้าง)` : ''}
+        footer={bulkModal ? (
+          <>
+            <button onClick={() => setBulkModal(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
+            <button
+              onClick={handleBulkSubmit}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 shadow"
+            >
+              <Save size={16} /> บันทึกการโอน
+            </button>
+          </>
+        ) : undefined}
+      >
+        {bulkModal && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">วันที่โอน:</label>
+              <input
+                type="date"
+                value={bulkModal.paidDate}
+                onChange={(e) => setBulkModal({ ...bulkModal, paidDate: e.target.value })}
+                className="border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+              />
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => setBulkModal({ ...bulkModal, selected: Object.fromEntries(bulkModal.projects.map((p) => [p.projectId, true])) })}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  เลือกทั้งหมด
+                </button>
+                <span className="text-xs text-gray-300">|</span>
+                <button
+                  onClick={() => setBulkModal({ ...bulkModal, selected: {} })}
+                  className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                >
+                  ล้าง
+                </button>
+              </div>
+            </div>
+            <div className="border rounded-lg max-h-[50vh] overflow-y-auto">
+              {bulkModal.projects.map((p) => {
+                const checked = !!bulkModal.selected[p.projectId];
+                return (
+                  <label
+                    key={p.projectId}
+                    className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 ${checked ? 'bg-indigo-50/40' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => setBulkModal({ ...bulkModal, selected: { ...bulkModal.selected, [p.projectId]: e.target.checked } })}
+                      className="w-4 h-4 accent-indigo-600"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700 truncate">{p.projectName}</p>
+                      <p className="text-xs text-gray-500 truncate">{p.client || '(ไม่ระบุผู้วิจัย)'}</p>
+                    </div>
+                    <span className="text-sm font-semibold text-amber-600 flex-shrink-0">{formatCurrency(p.outstanding)}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between bg-indigo-50 rounded-lg px-3 py-2">
+              <span className="text-sm text-indigo-700">รวมที่จะโอน:</span>
+              <span className="text-lg font-bold text-indigo-700">
+                {formatCurrency(bulkModal.projects.filter((p) => bulkModal.selected[p.projectId]).reduce((s, p) => s + p.outstanding, 0))}
+              </span>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Slip viewer */}
       {viewSlipUrl && (

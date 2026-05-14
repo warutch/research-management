@@ -8,6 +8,7 @@ import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/li
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
+import { toast } from '@/components/Toast';
 import { v4 as uuidv4 } from 'uuid';
 
 type ProjectForm = Omit<Project, 'id' | 'createdAt' | 'activities' | 'installments'>;
@@ -115,8 +116,8 @@ export default function ProjectsPage() {
   const [distForm, setDistForm] = useState({ projectId: '', recipientId: '' as RecipientId | '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [] as string[], note: '' });
 
   const handleSaveDistribution = (projectId: string) => {
-    if (!distForm.recipientId) { alert('กรุณาเลือกผู้รับเงิน'); return; }
-    if (!distForm.amount || distForm.amount <= 0) { alert('กรุณาระบุจำนวนเงิน'); return; }
+    if (!distForm.recipientId) { toast.error('กรุณาเลือกผู้รับเงิน'); return; }
+    if (!distForm.amount || distForm.amount <= 0) { toast.error('กรุณาระบุจำนวนเงิน'); return; }
     addDistribution({ ...distForm, projectId, recipientId: distForm.recipientId as RecipientId });
     setDistForm({ projectId: '', recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' });
     setShowDistForm(null);
@@ -172,7 +173,7 @@ export default function ProjectsPage() {
     const horseP = activityForm.horsePercent ?? HORSE_PERCENT;
     const poolP = activityForm.poolPercent ?? POOL_PERCENT;
     if (totalShare + horseP + poolP > 100) {
-      alert(`ส่วนแบ่งรวมต้องไม่เกิน 100%\nผู้ก่อตั้ง ${totalShare}% + Manager ${horseP}% + Pool money ${poolP}% = ${totalShare + horseP + poolP}%`);
+      toast.error(`ส่วนแบ่งรวมเกิน 100% — ผู้ก่อตั้ง ${totalShare}% + Manager ${horseP}% + Pool ${poolP}% = ${totalShare + horseP + poolP}%`);
       return;
     }
     if (editingActivityId) updateActivity(projectId, editingActivityId, activityForm);
@@ -225,7 +226,7 @@ export default function ProjectsPage() {
     }
     const installments = project.installments || [];
     const toUpdate = installments.filter((inst) => autoAmounts[inst.installmentNumber]);
-    if (toUpdate.length === 0) { alert('ไม่พบงวดที่ตรงกับสูตรอัตโนมัติ'); return; }
+    if (toUpdate.length === 0) { toast.warning('ไม่พบงวดที่ตรงกับสูตรอัตโนมัติ'); return; }
     const summary = toUpdate.map((inst) => autoAmounts[inst.installmentNumber].label).join('\n');
     if (!confirm(`คำนวณเงินงวดอัตโนมัติ (${PROJECT_TYPE_LABELS[projectType]}):\n\n${summary}\n\nต้องการดำเนินการ?`)) return;
     toUpdate.forEach((inst) => {
@@ -263,8 +264,8 @@ export default function ProjectsPage() {
   };
 
   const handleSavePayment = (projectId: string) => {
-    if (!paymentForm.installmentId) { alert('กรุณาเลือกงวดเงิน'); return; }
-    if (!paymentForm.amount || paymentForm.amount <= 0) { alert('กรุณาระบุจำนวนเงิน'); return; }
+    if (!paymentForm.installmentId) { toast.error('กรุณาเลือกงวดเงิน'); return; }
+    if (!paymentForm.amount || paymentForm.amount <= 0) { toast.error('กรุณาระบุจำนวนเงิน'); return; }
 
     // ตรวจสอบว่าจ่ายเกินงวดหรือไม่
     const project = projects.find((p) => p.id === projectId);
@@ -274,7 +275,7 @@ export default function ProjectsPage() {
       const wouldTotal = alreadyPaid + paymentForm.amount;
       if (wouldTotal > inst.amount) {
         const remaining = inst.amount - alreadyPaid;
-        alert(`ไม่สามารถบันทึกได้ จำนวนเงินเกินงวด\n\nงวดเงิน: ${formatCurrency(inst.amount)}\nชำระแล้ว: ${formatCurrency(alreadyPaid)}\nคงเหลือ: ${formatCurrency(remaining)}\nจำนวนที่กรอก: ${formatCurrency(paymentForm.amount)}\n\nกรุณาแก้ไขจำนวนเงินไม่เกิน ${formatCurrency(remaining)}`);
+        toast.error(`จำนวนเงินเกินงวด — คงเหลือ ${formatCurrency(remaining)} (จาก ${formatCurrency(inst.amount)})`);
         return;
       }
     }

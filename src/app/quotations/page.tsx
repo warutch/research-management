@@ -8,6 +8,7 @@ import { generateQuotationPdf } from '@/lib/generatePdf';
 import { Plus, Trash2, Pencil, FileDown, Eye, X, Save, FileText } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useHydrated } from '@/lib/useHydrated';
+import { toast } from '@/components/Toast';
 
 type QuotationForm = Omit<Quotation, 'id' | 'createdAt'>;
 
@@ -46,6 +47,11 @@ export default function QuotationsPage() {
     const project = projects.find((p) => p.id === projectId);
     if (!project) {
       setForm({ ...form, projectId });
+      return;
+    }
+    // เตือนถ้าผู้ใช้แก้รายการมาแล้ว — จะหายเพราะ overwrite ด้วย activities ของโครงการใหม่
+    const hasUserItems = form.items.some((it) => it.description?.trim() || it.unitPrice > 0);
+    if (hasUserItems && !confirm('การเปลี่ยนโครงการจะแทนรายการสินค้าทั้งหมดด้วยกิจกรรมของโครงการใหม่ — รายการที่แก้ไขไว้จะหาย ต้องการดำเนินการ?')) {
       return;
     }
     const items: QuotationItem[] = project.activities.map((activity) => ({
@@ -92,7 +98,7 @@ export default function QuotationsPage() {
 
   const handleSave = () => {
     if (!form.clientName.trim()) {
-      alert('กรุณาระบุชื่อลูกค้า');
+      toast.error('กรุณาระบุชื่อลูกค้า');
       return;
     }
     if (editingId) {

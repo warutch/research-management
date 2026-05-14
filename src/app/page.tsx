@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { formatCurrency, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { useHydrated } from '@/lib/useHydrated';
 import TrackingActivityModal from '@/components/TrackingActivityModal';
+import { toast } from '@/components/Toast';
 import {
   FolderKanban,
   TrendingUp,
@@ -91,7 +92,7 @@ export default function DashboardPage() {
   const handleSaveProject = () => {
     if (!editingProject) return;
     if (!projectForm.name.trim()) {
-      alert('กรุณาระบุชื่อโครงการ');
+      toast.error('กรุณาระบุชื่อโครงการ');
       return;
     }
     updateProject(editingProject.id, projectForm);

@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import AuthGuard from './AuthGuard';
+import { ToastContainer } from './Toast';
+import GlobalSearch from './GlobalSearch';
 import { useStore, getProjectYear, getLatestYear, type StatusFilter, type YearFilter } from '@/store/useStore';
 import { PROJECT_TYPE_COLORS, PROJECT_TYPE_LABELS, type ProjectTypeFilter } from '@/types';
 import { cn } from '@/lib/utils';
@@ -67,6 +69,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </main>
+        <ToastContainer />
+        <GlobalSearch />
       </div>
     </AuthGuard>
   );
@@ -233,15 +237,15 @@ function TopFilterBar() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="ค้นหา: ชื่อ, ผู้วิจัย, ปี, ประเภท, สถานะ, สมาชิก..."
+          placeholder="กรองในหน้านี้... (ค้นข้ามหน้า: ⌘K)"
           className={cn(
-            'w-full pl-7 pr-7 py-1 rounded-full text-[11px] border bg-white text-gray-700',
+            'w-full pl-7 pr-12 py-1 rounded-full text-[11px] border bg-white text-gray-700',
             'focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300',
             searchQuery ? 'border-indigo-300 bg-indigo-50/40' : 'border-gray-200 hover:border-gray-300'
           )}
           data-testid="filter-search"
         />
-        {searchQuery && (
+        {searchQuery ? (
           <button
             onClick={() => setSearchQuery('')}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
@@ -249,6 +253,8 @@ function TopFilterBar() {
           >
             <X size={11} />
           </button>
+        ) : (
+          <span className="hidden md:inline absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded pointer-events-none">⌘K</span>
         )}
       </div>
     </div>

@@ -13,7 +13,7 @@ export default function PaymentsPage() {
   const [viewSlips, setViewSlips] = useState<string[] | null>(null);
   const [viewSlipIndex, setViewSlipIndex] = useState(0);
 
-  if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">...</div>;
+  if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">กำลังโหลด...</div>;
 
   const filteredPayments = [...payments].sort(
     (a, b) => new Date(b.paidDate || b.createdAt).getTime() - new Date(a.paidDate || a.createdAt).getTime()
