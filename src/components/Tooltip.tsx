@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { cloneElement, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 // Tooltip:
@@ -119,27 +119,26 @@ export function Tooltip({ content, children, placement = 'top', maxWidth = 320, 
     if (hideTimer.current) clearTimeout(hideTimer.current);
   }, []);
 
-  // Clone trigger child เพื่อแนบ event handlers + ref
+  // Clone trigger child เพื่อแนบ event handlers + ref (ใช้ React.cloneElement)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const child = children as any;
-  const clonedTrigger = {
-    ...child,
+  const child = children as React.ReactElement<any>;
+  const childProps = child.props || {};
+  const clonedTrigger = cloneElement(child, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ref: (el: HTMLElement | null) => {
       triggerRef.current = el;
       // forward ref ถ้ามี
-      const origRef = child.ref;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const origRef = (child as any).ref;
       if (typeof origRef === 'function') origRef(el);
       else if (origRef && 'current' in origRef) origRef.current = el;
     },
-    props: {
-      ...child.props,
-      onMouseEnter: (e: React.MouseEvent) => { show(); child.props.onMouseEnter?.(e); },
-      onMouseLeave: (e: React.MouseEvent) => { hide(); child.props.onMouseLeave?.(e); },
-      onFocus: (e: React.FocusEvent) => { show(); child.props.onFocus?.(e); },
-      onBlur: (e: React.FocusEvent) => { hide(); child.props.onBlur?.(e); },
-      onClick: (e: React.MouseEvent) => { toggle(); child.props.onClick?.(e); },
-    },
-  };
+    onMouseEnter: (e: React.MouseEvent) => { show(); childProps.onMouseEnter?.(e); },
+    onMouseLeave: (e: React.MouseEvent) => { hide(); childProps.onMouseLeave?.(e); },
+    onFocus: (e: React.FocusEvent) => { show(); childProps.onFocus?.(e); },
+    onBlur: (e: React.FocusEvent) => { hide(); childProps.onBlur?.(e); },
+    onClick: (e: React.MouseEvent) => { toggle(); childProps.onClick?.(e); },
+  } as Record<string, unknown>);
 
   return (
     <>
