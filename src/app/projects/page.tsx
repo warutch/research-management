@@ -879,7 +879,23 @@ export default function ProjectsPage() {
                               <div className="p-5 space-y-4">
                                 <div>
                                   <label className="block text-sm font-medium text-gray-700 mb-1">งวดเงิน *</label>
-                                  <select value={paymentForm.installmentId} onChange={(e) => setPaymentForm({ ...paymentForm, installmentId: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                                  <select
+                                    value={paymentForm.installmentId}
+                                    onChange={(e) => {
+                                      const newInstId = e.target.value;
+                                      // Prefill จำนวนเงิน = ยอดคงเหลือของงวดนี้
+                                      let prefillAmount = paymentForm.amount;
+                                      if (newInstId && !editingPaymentId) {
+                                        const inst = installments.find((i) => i.id === newInstId);
+                                        if (inst) {
+                                          const paidSoFar = getInstallmentPaid(newInstId);
+                                          prefillAmount = Math.max(0, inst.amount - paidSoFar);
+                                        }
+                                      }
+                                      setPaymentForm({ ...paymentForm, installmentId: newInstId, amount: prefillAmount });
+                                    }}
+                                    className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                  >
                                     <option value="">-- เลือกงวดเงิน --</option>
                                     {installments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0)).map((inst) => {
                                       const fullyPaid = isInstallmentFullyPaid(inst);
@@ -1311,11 +1327,22 @@ export default function ProjectsPage() {
                                               value={distForm.recipientId}
                                               onChange={(e) => {
                                                 const rid = e.target.value as RecipientId | '';
-                                                // ถ้าเลือก Commission และยังไม่ได้ใส่จำนวน → auto-fill จาก project.commission
-                                                const autoAmount = rid === 'commission' && (!distForm.amount || distForm.amount === 0)
-                                                  ? getCommission(project)
-                                                  : distForm.amount;
-                                                setDistForm({ ...distForm, recipientId: rid as RecipientId, amount: autoAmount });
+                                                // Prefill จำนวนเงิน = ที่ต้องโอนคงเหลือของ recipient นั้น (rounded shouldPay − โอนแล้ว)
+                                                let prefillAmount = distForm.amount;
+                                                if (rid) {
+                                                  const alreadyPaid = distributions
+                                                    .filter((d) => d.projectId === project.id && d.recipientId === rid)
+                                                    .reduce((s, d) => s + d.amount, 0);
+                                                  const totalPaidForProject = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
+                                                  const rs = calcRoundedShares(project, totalPaidForProject);
+                                                  let shouldPay = 0;
+                                                  if (rid === 'commission') shouldPay = rs.commission;
+                                                  else if (rid === 'horse') shouldPay = rs.horse;
+                                                  else if (rid === 'pool') shouldPay = rs.pool;
+                                                  else shouldPay = rs.members[rid as MemberId] ?? 0;
+                                                  prefillAmount = Math.max(0, shouldPay - alreadyPaid);
+                                                }
+                                                setDistForm({ ...distForm, recipientId: rid as RecipientId, amount: prefillAmount });
                                               }}
                                               className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
                                             >
