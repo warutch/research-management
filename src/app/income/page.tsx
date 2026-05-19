@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, RecipientId, ALL_SHARE_NAMES, getCommission, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome } from '@/types';
+import { MEMBERS, RecipientId, ALL_SHARE_NAMES, getCommission, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome, calcRoundedShares, calcRoundedExpected } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from '@/components/Toast';
@@ -93,9 +93,9 @@ export default function IncomePage() {
 
   const filteredProjects = projects;
 
-  // รายรับที่คาดว่าจะได้ (จากกิจกรรม) — ใช้ NET (หลังหัก commission)
+  // รายรับที่คาดว่าจะได้ (จากกิจกรรม) — ใช้ rounded NET (Coordinator ดูดเศษ)
   const memberIncomes = MEMBERS.map((member) => {
-    const expectedIncome = filteredProjects.reduce((total, project) => total + calcMemberNetIncome(project, member.id), 0);
+    const expectedIncome = filteredProjects.reduce((total, project) => total + calcRoundedExpected(project).members[member.id], 0);
 
     // รายรับจริงที่ได้รับ (จาก distributions)
     const actualIncome = distributions
@@ -103,15 +103,13 @@ export default function IncomePage() {
       .reduce((s, d) => s + d.amount, 0);
 
     const projectBreakdown = filteredProjects.map((project) => {
-      const expected = calcMemberNetIncome(project, member.id);
+      const expected = calcRoundedExpected(project).members[member.id];
       const actual = distributions
         .filter((d) => d.recipientId === member.id && d.projectId === project.id)
         .reduce((s, d) => s + d.amount, 0);
-      // คำนวณ "ต้องโอน" จากสัดส่วนเงินที่ลูกค้าชำระแล้ว
-      const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
+      // คำนวณ "ต้องโอน" จากสัดส่วนเงินที่ลูกค้าชำระแล้ว (commission-first, rounded)
       const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-      const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
-      const shouldPay = expected * paidRatio;
+      const shouldPay = calcRoundedShares(project, clientPaid).members[member.id];
       const diff = shouldPay - actual; // บวก = ค้าง, ลบ = เกิน
       const outstanding = Math.max(0, diff);
       const overpaid = Math.max(0, -diff);
@@ -125,40 +123,41 @@ export default function IncomePage() {
     return { ...member, expectedIncome, actualIncome, projectBreakdown, outstandingPayable, shouldPayTotal };
   });
 
-  // Helper: คำนวณ "ต้องโอน" รวมของ recipient (horse/pool/commission) ตามสัดส่วน client paid
-  const computeRecipientStats = (getExpected: (p: typeof filteredProjects[number]) => number, rid: RecipientId) => {
+  // Helper: คำนวณรวมต่อ recipient (rounded shouldPay)
+  const computeRecipientStats = (
+    pick: (rs: ReturnType<typeof calcRoundedShares>) => number,
+    rid: RecipientId,
+    getExpectedExact: (p: typeof filteredProjects[number]) => number,
+  ) => {
     let expected = 0;
     let actual = 0;
     let shouldPay = 0;
     for (const project of filteredProjects) {
-      const exp = getExpected(project);
-      expected += exp;
+      expected += getExpectedExact(project);
       const act = distributions
         .filter((d) => d.recipientId === rid && d.projectId === project.id)
         .reduce((s, d) => s + d.amount, 0);
       actual += act;
-      const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
       const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-      const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
-      shouldPay += exp * paidRatio;
+      shouldPay += pick(calcRoundedShares(project, clientPaid));
     }
     const outstandingPayable = Math.max(0, shouldPay - actual);
     return { expected, actual, shouldPay, outstandingPayable };
   };
 
-  // Manager + Pool money — ใช้ NET (หลังหัก commission)
-  const horseStats = computeRecipientStats(calcHorseNetIncome, 'horse');
+  // Manager + Pool — raw เต็ม (ไม่โดน commission), shouldPay rounded
+  const horseStats = computeRecipientStats((rs) => rs.horse, 'horse', calcHorseNetIncome);
   const horseExpected = horseStats.expected;
   const horseActual = horseStats.actual;
   const horseOutstandingPayable = horseStats.outstandingPayable;
 
-  const poolStats = computeRecipientStats(calcPoolNetIncome, 'pool');
+  const poolStats = computeRecipientStats((rs) => rs.pool, 'pool', calcPoolNetIncome);
   const poolExpected = poolStats.expected;
   const poolActual = poolStats.actual;
   const poolOutstandingPayable = poolStats.outstandingPayable;
 
-  // Commission — รวมรายโครงการ (one-time)
-  const commissionStats = computeRecipientStats((p) => getCommission(p), 'commission');
+  // Commission — paid FIRST (capped, rounded)
+  const commissionStats = computeRecipientStats((rs) => rs.commission, 'commission', getCommission);
   const commissionExpected = commissionStats.expected;
   const commissionActual = commissionStats.actual;
   const commissionOutstandingPayable = commissionStats.outstandingPayable;

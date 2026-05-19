@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome, calcMemberCommissionShare, calcHorseCommissionShare, calcPoolCommissionShare, calcNetRatio } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta } from '@/types';
 import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
@@ -684,36 +684,43 @@ export default function ProjectsPage() {
                                   <td className="py-2.5 text-center text-xs">{formatCurrency(calcPoolRawIncome(project))}</td>
                                   <td /><td />
                                 </tr>
-                                {getCommission(project) > 0 && (
-                                  <>
-                                    <tr className="text-rose-700 bg-rose-50">
-                                      <td className="py-2 text-xs">
-                                        <span className="font-medium">หัก Commission</span>
-                                        <span className="ml-1 text-rose-400">(proportional — รวม ฿{getCommission(project).toLocaleString()})</span>
-                                      </td>
-                                      <td className="py-2 text-right text-xs">−{formatCurrency(getCommission(project))}</td>
-                                      {MEMBERS.map((m) => <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(calcMemberCommissionShare(project, m.id))}</td>)}
-                                      <td className="py-2 text-center text-xs">−{formatCurrency(calcHorseCommissionShare(project))}</td>
-                                      <td className="py-2 text-center text-xs">−{formatCurrency(calcPoolCommissionShare(project))}</td>
-                                      <td /><td />
-                                    </tr>
-                                    <tr className="font-semibold text-gray-900 bg-indigo-50 border-t-2 border-indigo-200">
-                                      <td className="py-2.5">รวมสุทธิ (หลังหัก commission)</td>
-                                      <td className="py-2.5 text-right">{formatCurrency(totalCost - getCommission(project))}</td>
-                                      {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(calcMemberNetIncome(project, m.id))}</td>)}
-                                      <td className="py-2.5 text-center text-xs">{formatCurrency(calcHorseNetIncome(project))}</td>
-                                      <td className="py-2.5 text-center text-xs">{formatCurrency(calcPoolNetIncome(project))}</td>
-                                      <td /><td />
-                                    </tr>
-                                  </>
-                                )}
+                                {getCommission(project) > 0 && (() => {
+                                  // ใช้ rounded shares — Coordinator ดูดเศษ
+                                  const roundedExpected = calcRoundedExpected(project);
+                                  return (
+                                    <>
+                                      <tr className="text-rose-700 bg-rose-50">
+                                        <td className="py-2 text-xs">
+                                          <span className="font-medium">หัก Commission</span>
+                                          <span className="ml-1 text-rose-400">(จากสมาชิก 3 คน — Manager+Pool ไม่โดน)</span>
+                                        </td>
+                                        <td className="py-2 text-right text-xs">−{formatCurrency(getCommission(project))}</td>
+                                        {MEMBERS.map((m) => {
+                                          const deduction = calcMemberRawIncome(project, m.id) - roundedExpected.members[m.id];
+                                          return <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(deduction)}</td>;
+                                        })}
+                                        <td className="py-2 text-center text-xs text-gray-400">−฿0</td>
+                                        <td className="py-2 text-center text-xs text-gray-400">−฿0</td>
+                                        <td /><td />
+                                      </tr>
+                                      <tr className="font-semibold text-gray-900 bg-indigo-50 border-t-2 border-indigo-200">
+                                        <td className="py-2.5">รวมสุทธิ (หลังหัก commission)</td>
+                                        <td className="py-2.5 text-right">{formatCurrency(totalCost - getCommission(project))}</td>
+                                        {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(roundedExpected.members[m.id])}</td>)}
+                                        <td className="py-2.5 text-center text-xs">{formatCurrency(roundedExpected.horse)}</td>
+                                        <td className="py-2.5 text-center text-xs">{formatCurrency(roundedExpected.pool)}</td>
+                                        <td /><td />
+                                      </tr>
+                                    </>
+                                  );
+                                })()}
                               </tbody>
                             </table>
                             {getCommission(project) > 0 && (
                               <div className="mt-3 flex items-center justify-between bg-rose-50 border border-rose-200 rounded-lg px-4 py-2.5">
                                 <div className="flex items-center gap-2 text-sm">
                                   <span className="font-medium text-rose-700">{ALL_SHARE_NAMES.commission}</span>
-                                  <span className="text-xs text-rose-500">(หักรายโครงการ {Math.round((1 - calcNetRatio(project)) * 100 * 100) / 100}% จากทุกคนตามสัดส่วน)</span>
+                                  <span className="text-xs text-rose-500">(หัก {Math.round((1 - calcNetRatio(project)) * 100 * 100) / 100}% จากสมาชิก 3 คนหลัก — Manager + Pool ไม่โดน)</span>
                                 </div>
                                 <span className="font-medium text-rose-700">{formatCurrency(getCommission(project))}</span>
                               </div>
@@ -1003,11 +1010,12 @@ export default function ProjectsPage() {
                             const projectPaymentsAll = payments.filter((p) => p.projectId === project.id);
                             const totalPaidReal = projectPaymentsAll.reduce((s, p) => s + p.amount, 0);
                             const commissionAmount = getCommission(project);
-                            const netRatio = calcNetRatio(project);
 
-                            // คำนวณส่วนแบ่งจากกิจกรรม (raw) + net หลังหัก commission
-                            // m.total = NET (ที่ต้องโอนจริง — หลังหัก commission)
-                            // m.rawTotal = RAW (ก่อนหัก) — ใช้ในตารางที่แสดง % รายกิจกรรม
+                            // ใช้ rounded shares — ทุกยอดเป็นจำนวนเต็มบาท, Coordinator (ton) ดูดเศษ
+                            const roundedExpected = calcRoundedExpected(project); // ยอดรวมเมื่อจ่ายครบ
+                            const roundedNow = calcRoundedShares(project, totalPaidReal); // ที่ควรโอนตอนนี้
+
+                            // memberShares สำหรับใช้ในตาราง breakdown
                             const memberShares = MEMBERS.map((m) => {
                               const byActivity = project.activities.map((a) => ({
                                 activityName: a.name,
@@ -1015,33 +1023,26 @@ export default function ProjectsPage() {
                                 amount: (a.cost * (a.sharePercent[m.id] || 0)) / 100,
                               }));
                               const rawTotal = byActivity.reduce((s, a) => s + a.amount, 0);
-                              const total = rawTotal * netRatio;
-                              return { ...m, byActivity, total, rawTotal };
+                              // total = NET ทั้งโครงการ (rounded, ton ดูดเศษ)
+                              const total = roundedExpected.members[m.id];
+                              // shouldPayNow = ที่ต้องโอนตอนนี้ (rounded)
+                              const shouldPayNow = roundedNow.members[m.id];
+                              return { ...m, byActivity, total, rawTotal, shouldPayNow };
                             });
 
-                            const horseByActivity = project.activities.map((a) => ({
-                              activityName: a.name,
-                              percent: getHorsePercent(a),
-                              amount: (a.cost * getHorsePercent(a)) / 100,
-                            }));
-                            const horseRawTotal = horseByActivity.reduce((s, a) => s + a.amount, 0);
-                            const horseTotal = horseRawTotal * netRatio;
+                            const horseRawTotal = calcHorseRawIncome(project);
+                            const poolRawTotal = calcPoolRawIncome(project);
+                            // Manager + Pool ไม่โดน commission → total = raw (rounded)
+                            const horseTotal = roundedExpected.horse;
+                            const poolTotal = roundedExpected.pool;
+                            const horseShouldPayNow = roundedNow.horse;
+                            const poolShouldPayNow = roundedNow.pool;
+                            const commissionShouldPay = roundedNow.commission;
 
-                            const poolByActivity = project.activities.map((a) => ({
-                              activityName: a.name,
-                              percent: getPoolPercent(a),
-                              amount: (a.cost * getPoolPercent(a)) / 100,
-                            }));
-                            const poolRawTotal = poolByActivity.reduce((s, a) => s + a.amount, 0);
-                            const poolTotal = poolRawTotal * netRatio;
-
-                            // grandTotal = ผลรวมที่ลูกค้าจ่ายทั้งหมด = totalCost ของ activities
-                            // = (net ของทุกคน) + commission
-                            const grandTotal = memberShares.reduce((s, m) => s + m.total, 0) + horseTotal + poolTotal + commissionAmount;
+                            // grandTotal = totalCost (= cappedPaid เมื่อจ่ายครบ)
+                            const grandTotal = totalCost;
                             const grandTotalRaw = memberShares.reduce((s, m) => s + m.rawTotal, 0) + horseRawTotal + poolRawTotal;
-
-                            // สัดส่วนที่ต้องโอนจริง (ตาม % ของเงินที่รับมาแล้ว)
-                            const paidRatio = grandTotal > 0 ? totalPaidReal / grandTotal : 0;
+                            const memberSumRaw = memberShares.reduce((s, m) => s + m.rawTotal, 0);
 
                             return (
                               <div className="space-y-4">
@@ -1058,7 +1059,7 @@ export default function ProjectsPage() {
                                       </div>
                                       <div className={`grid grid-cols-2 sm:grid-cols-3 ${hasCommission ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-3`}>
                                         {memberShares.map((m) => {
-                                          const shouldPay = m.total * paidRatio;
+                                          const shouldPay = m.shouldPayNow; // rounded
                                           const alreadyPaid = distPaid(m.id);
                                           const remaining = Math.max(0, shouldPay - alreadyPaid);
                                           const fullyPaid = alreadyPaid >= m.total && m.total > 0;
@@ -1082,10 +1083,10 @@ export default function ProjectsPage() {
                                             </div>
                                           );
                                         })}
-                                        {/* Manager */}
+                                        {/* Manager — ไม่โดน commission, ใช้ rounded shouldPay */}
                                         {(() => {
                                           const hPaid = distPaid('horse');
-                                          const hShouldPay = horseTotal * paidRatio;
+                                          const hShouldPay = horseShouldPayNow; // rounded
                                           const hRemaining = Math.max(0, hShouldPay - hPaid);
                                           const hFull = hPaid >= horseTotal && horseTotal > 0;
                                           return (
@@ -1104,10 +1105,10 @@ export default function ProjectsPage() {
                                             </div>
                                           );
                                         })()}
-                                        {/* Pool money */}
+                                        {/* Pool money — ไม่โดน commission, ใช้ rounded shouldPay */}
                                         {(() => {
                                           const pPaid = distPaid('pool');
-                                          const pShouldPay = poolTotal * paidRatio;
+                                          const pShouldPay = poolShouldPayNow; // rounded
                                           const pRemaining = Math.max(0, pShouldPay - pPaid);
                                           const pFull = pPaid >= poolTotal && poolTotal > 0;
                                           return (
@@ -1131,15 +1132,17 @@ export default function ProjectsPage() {
                                           const commTotal = getCommission(project);
                                           const cPaid = distPaid('commission');
                                           const cFull = cPaid >= commTotal;
-                                          const cRemaining = Math.max(0, commTotal - cPaid);
+                                          // commission-first: ต้องโอนจริง = min(commission, ที่ลูกค้าจ่ายมาแล้ว) − โอนแล้ว
+                                          const cShouldPay = commissionShouldPay;
+                                          const cRemaining = Math.max(0, cShouldPay - cPaid);
                                           return (
                                             <div className={`rounded-lg border p-3 text-center ${cFull ? 'bg-green-50 border-green-200' : 'border-rose-200 bg-rose-50'}`}>
                                               <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center bg-rose-500 text-white font-bold text-sm">CM</div>
                                               <p className="text-sm text-gray-700 font-medium">Commission</p>
                                               <p className="text-lg font-bold text-rose-600 mt-1">{formatCurrency(commTotal)}</p>
-                                              <p className="text-xs text-gray-400">หักรายโครงการ (one-time)</p>
+                                              <p className="text-xs text-gray-400">หักก่อนเป็นอันดับแรก</p>
                                               {cPaid > 0 && <p className="text-xs text-green-600 mt-1">โอนแล้ว: {formatCurrency(cPaid)}</p>}
-                                              {!cFull && (
+                                              {totalPaidReal > 0 && !cFull && cRemaining > 0 && (
                                                 <div className="mt-2 px-2 py-1.5 bg-blue-50 rounded-md">
                                                   <p className="text-sm text-blue-700 font-bold">ต้องโอน: {formatCurrency(cRemaining)}</p>
                                                 </div>
@@ -1151,7 +1154,7 @@ export default function ProjectsPage() {
                                       </div>
                                       {totalPaidReal > 0 && (
                                         <div className="mt-3 p-3 bg-indigo-50 rounded-lg flex items-center justify-between text-sm">
-                                          <span className="text-indigo-700">เงินที่รับมาแล้ว: <strong>{formatCurrency(totalPaidReal)}</strong> จากทั้งหมด <strong>{formatCurrency(grandTotal)}</strong> ({grandTotal > 0 ? Math.round(paidRatio * 100) : 0}%)</span>
+                                          <span className="text-indigo-700">เงินที่รับมาแล้ว: <strong>{formatCurrency(totalPaidReal)}</strong> จากทั้งหมด <strong>{formatCurrency(grandTotal)}</strong> ({grandTotal > 0 ? Math.round((totalPaidReal / grandTotal) * 100) : 0}%)</span>
                                           <span className={totalPaidReal >= grandTotal ? 'text-green-600 font-bold' : 'text-yellow-600'}>{totalPaidReal >= grandTotal ? '✅ รับครบแล้ว' : `คงค้าง ${formatCurrency(grandTotal - totalPaidReal)}`}</span>
                                         </div>
                                       )}
@@ -1203,7 +1206,7 @@ export default function ProjectsPage() {
                                       {commissionAmount > 0 && (
                                         <>
                                           <tr className="text-rose-700 bg-rose-50">
-                                            <td className="px-3 py-1.5 text-xs">หัก Commission ({Math.round((1 - netRatio) * 10000) / 100}%)</td>
+                                            <td className="px-3 py-1.5 text-xs">หัก Commission (จากสมาชิก {Math.round((1 - calcNetRatio(project)) * 10000) / 100}%)</td>
                                             <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount)}</td>
                                             {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - m.total)}</td>)}
                                             <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - horseTotal)}</td>
@@ -1224,7 +1227,7 @@ export default function ProjectsPage() {
 
                                 {/* แผนการโอนเงินแยกรายงวด (ย้ายขึ้นมา) */}
                                 <div className="bg-white rounded-lg border p-4">
-                                  <h5 className="text-sm font-semibold text-gray-700 mb-3">แผนการโอนเงินแยกรายงวด {commissionAmount > 0 && <span className="text-xs font-normal text-gray-500">(สุทธิ — หลังหัก commission)</span>}</h5>
+                                  <h5 className="text-sm font-semibold text-gray-700 mb-3">แผนการโอนเงินแยกรายงวด {commissionAmount > 0 && <span className="text-xs font-normal text-gray-500">(Commission ตัดก่อนเป็นอันดับแรก แล้วค่อยกระจายให้สมาชิก)</span>}</h5>
                                   <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
                                       <thead>
@@ -1239,25 +1242,33 @@ export default function ProjectsPage() {
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {[...installments].sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0)).map((inst) => {
-                                          const instPaid = projectPaymentsAll.filter((p) => p.installmentId === inst.id).reduce((s, p) => s + p.amount, 0);
-                                          const instRatio = grandTotal > 0 ? inst.amount / grandTotal : 0;
-                                          return (
-                                            <tr key={inst.id} className="border-b border-gray-50">
-                                              <td className="px-3 py-2 text-gray-700">งวดที่ {inst.installmentNumber}</td>
-                                              <td className="px-3 py-2 text-right font-medium">{formatCurrency(inst.amount)}</td>
-                                              <td className="px-3 py-2 text-right">
-                                                <span className={instPaid >= inst.amount && inst.amount > 0 ? 'text-green-600 font-medium' : instPaid > 0 ? 'text-blue-600' : 'text-gray-400'}>{formatCurrency(instPaid)}</span>
-                                              </td>
-                                              {memberShares.map((m) => (
-                                                <td key={m.id} className="px-3 py-2 text-center text-xs" style={{ color: m.color }}>{formatCurrency(m.total * instRatio)}</td>
-                                              ))}
-                                              <td className="px-3 py-2 text-center text-xs text-amber-600">{formatCurrency(horseTotal * instRatio)}</td>
-                                              <td className="px-3 py-2 text-center text-xs text-gray-500">{formatCurrency(poolTotal * instRatio)}</td>
-                                              {commissionAmount > 0 && <td className="px-3 py-2 text-center text-xs text-rose-600">{formatCurrency(commissionAmount * instRatio)}</td>}
-                                            </tr>
-                                          );
-                                        })}
+                                        {(() => {
+                                          // ใช้ calcRoundedSharesDelta — ทุกยอดเป็นจำนวนเต็มบาท
+                                          // cumulative paid up to each installment → delta คือยอดของงวดนั้น
+                                          const sortedInsts = [...installments].sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
+                                          let cumulative = 0;
+                                          return sortedInsts.map((inst) => {
+                                            const instPaid = projectPaymentsAll.filter((p) => p.installmentId === inst.id).reduce((s, p) => s + p.amount, 0);
+                                            const before = cumulative;
+                                            cumulative += inst.amount;
+                                            const delta = calcRoundedSharesDelta(project, before, cumulative);
+                                            return (
+                                              <tr key={inst.id} className="border-b border-gray-50">
+                                                <td className="px-3 py-2 text-gray-700">งวดที่ {inst.installmentNumber}</td>
+                                                <td className="px-3 py-2 text-right font-medium">{formatCurrency(inst.amount)}</td>
+                                                <td className="px-3 py-2 text-right">
+                                                  <span className={instPaid >= inst.amount && inst.amount > 0 ? 'text-green-600 font-medium' : instPaid > 0 ? 'text-blue-600' : 'text-gray-400'}>{formatCurrency(instPaid)}</span>
+                                                </td>
+                                                {memberShares.map((m) => (
+                                                  <td key={m.id} className="px-3 py-2 text-center text-xs" style={{ color: m.color }}>{formatCurrency(delta.members[m.id])}</td>
+                                                ))}
+                                                <td className="px-3 py-2 text-center text-xs text-amber-600">{formatCurrency(delta.horse)}</td>
+                                                <td className="px-3 py-2 text-center text-xs text-gray-500">{formatCurrency(delta.pool)}</td>
+                                                {commissionAmount > 0 && <td className="px-3 py-2 text-center text-xs text-rose-600">{formatCurrency(delta.commission)}</td>}
+                                              </tr>
+                                            );
+                                          });
+                                        })()}
                                         <tr className="font-bold text-gray-900 bg-gray-50 border-t-2 border-gray-300">
                                           <td className="px-3 py-2">รวม</td>
                                           <td className="px-3 py-2 text-right">{formatCurrency(totalInstallments)}</td>

@@ -124,21 +124,13 @@ export function getCommission(p: Pick<Project, 'commission'>): number {
   return p.commission ?? 0;
 }
 
-// ============ Income calculation helpers (รวมการหัก commission แบบ proportional) ============
-// commission หักรายโครงการ จากผู้รับทุกคน (Specialist/Analyst/Coordinator/Manager/Pool)
-// ตามสัดส่วนของรายได้ดิบในโครงการ — คนได้มากจะถูกหักมาก
+// ============ Income calculation helpers ============
+// commission หักเฉพาะจาก 3 สมาชิกหลัก (Specialist/Analyst/Coordinator) ตามสัดส่วน raw
+// Manager + Pool money ได้ raw เต็ม ไม่โดน commission
 
 // รายได้รวมของโครงการ (sum cost ของทุก activity)
 export function calcProjectTotalCost(project: Project): number {
   return project.activities.reduce((s, a) => s + a.cost, 0);
-}
-
-// อัตราส่วนสุทธิหลังหัก commission (0..1) — 1 ถ้าไม่มี commission, น้อยลงถ้ามี
-export function calcNetRatio(project: Project): number {
-  const total = calcProjectTotalCost(project);
-  const commission = getCommission(project);
-  if (total <= 0 || commission <= 0) return 1;
-  return Math.max(0, (total - commission) / total);
 }
 
 // รายได้ดิบของสมาชิก (ยังไม่หัก commission) — สำหรับโครงการ
@@ -152,26 +144,181 @@ export function calcPoolRawIncome(project: Project): number {
   return project.activities.reduce((s, a) => s + (a.cost * getPoolPercent(a)) / 100, 0);
 }
 
-// รายได้สุทธิ (หลังหัก commission proportional) — สำหรับสมาชิก/Manager/Pool
-export function calcMemberNetIncome(project: Project, memberId: MemberId): number {
-  return calcMemberRawIncome(project, memberId) * calcNetRatio(project);
-}
-export function calcHorseNetIncome(project: Project): number {
-  return calcHorseRawIncome(project) * calcNetRatio(project);
-}
-export function calcPoolNetIncome(project: Project): number {
-  return calcPoolRawIncome(project) * calcNetRatio(project);
+// ผลรวม raw ของ 3 สมาชิกหลัก (Specialist + Analyst + Coordinator)
+// เป็นฐานสำหรับหัก commission (Manager/Pool ไม่เกี่ยว)
+export function calcMemberSumRaw(project: Project): number {
+  return MEMBERS.reduce((s, m) => s + calcMemberRawIncome(project, m.id), 0);
 }
 
-// ส่วนที่ถูกหักจาก commission (proportional) — สำหรับแสดงในตาราง
+// อัตราส่วนสุทธิหลังหัก commission — เฉพาะ 3 สมาชิกหลัก
+// = (memberSumRaw − commission) / memberSumRaw
+export function calcMemberNetRatio(project: Project): number {
+  const sum = calcMemberSumRaw(project);
+  const commission = getCommission(project);
+  if (sum <= 0 || commission <= 0) return 1;
+  return Math.max(0, (sum - commission) / sum);
+}
+
+// keep alias สำหรับ backward compat (โค้ดเก่าใช้ calcNetRatio)
+// — ใช้กับ 3 สมาชิกหลักเท่านั้น (Manager/Pool ไม่ใช้แล้ว)
+export function calcNetRatio(project: Project): number {
+  return calcMemberNetRatio(project);
+}
+
+// รายได้สุทธิ (หลังหัก commission) — สมาชิก 3 คนหลัก
+export function calcMemberNetIncome(project: Project, memberId: MemberId): number {
+  return calcMemberRawIncome(project, memberId) * calcMemberNetRatio(project);
+}
+// Manager + Pool ได้ raw เต็ม — ไม่มีการหัก
+export function calcHorseNetIncome(project: Project): number {
+  return calcHorseRawIncome(project);
+}
+export function calcPoolNetIncome(project: Project): number {
+  return calcPoolRawIncome(project);
+}
+
+// ส่วนที่ถูกหักจาก commission — เฉพาะสมาชิก 3 คน
 export function calcMemberCommissionShare(project: Project, memberId: MemberId): number {
   return calcMemberRawIncome(project, memberId) - calcMemberNetIncome(project, memberId);
 }
-export function calcHorseCommissionShare(project: Project): number {
-  return calcHorseRawIncome(project) - calcHorseNetIncome(project);
+// Manager + Pool: ไม่โดน commission (returns 0)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function calcHorseCommissionShare(_project: Project): number {
+  return 0;
 }
-export function calcPoolCommissionShare(project: Project): number {
-  return calcPoolRawIncome(project) - calcPoolNetIncome(project);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function calcPoolCommissionShare(_project: Project): number {
+  return 0;
+}
+
+// ============ shouldPay helpers (commission-first allocation, members-only burden) ============
+// ลำดับการกระจายเงินที่ลูกค้าจ่ายมา (เงินทุกบาท):
+// 1. แบ่งตามสัดส่วน raw ของแต่ละ recipient
+//    - Manager/Pool ได้ส่วนของตนเองเต็ม (ไม่โดน commission)
+//    - 3 สมาชิกหลัก ได้ส่วนของตนเองเข้า "pot รวม" ก่อน
+// 2. จาก pot ของ 3 สมาชิก: เอาเข้า Commission ก่อนจนเต็ม
+//    ที่เหลือกระจายให้สมาชิกตามสัดส่วน raw
+//
+// ตัวอย่าง: project ฿25,000 (members rawSum ฿23,750), commission ฿1,000
+// งวด 1 ลูกค้าจ่าย ฿12,500:
+//   - Manager ได้: 12,500 × (625/25,000) = ฿312.50
+//   - Pool ได้:    12,500 × (625/25,000) = ฿312.50
+//   - Members' pot: 12,500 × (23,750/25,000) = ฿11,875
+//     - Commission ได้: ฿1,000 (เต็มยอด)
+//     - เหลือกระจายให้สมาชิก: ฿10,875 ตามสัดส่วน raw
+
+// ส่วนที่ต้องโอนให้ Manager (proportional to raw — ไม่โดน commission)
+export function calcHorseShouldPay(project: Project, clientPaid: number): number {
+  const totalCost = calcProjectTotalCost(project);
+  if (totalCost <= 0) return 0;
+  const ratio = Math.min(1, Math.max(0, clientPaid) / totalCost);
+  return calcHorseRawIncome(project) * ratio;
+}
+
+// ส่วนที่ต้องโอนให้ Pool (proportional to raw — ไม่โดน commission)
+export function calcPoolShouldPay(project: Project, clientPaid: number): number {
+  const totalCost = calcProjectTotalCost(project);
+  if (totalCost <= 0) return 0;
+  const ratio = Math.min(1, Math.max(0, clientPaid) / totalCost);
+  return calcPoolRawIncome(project) * ratio;
+}
+
+// pot รวมของ 3 สมาชิกตอนนี้ (ก่อนหัก commission)
+// = memberSumRaw × (clientPaid / totalCost)
+function _calcMembersPot(project: Project, clientPaid: number): number {
+  const totalCost = calcProjectTotalCost(project);
+  if (totalCost <= 0) return 0;
+  const ratio = Math.min(1, Math.max(0, clientPaid) / totalCost);
+  return calcMemberSumRaw(project) * ratio;
+}
+
+// ส่วนที่ต้องโอนให้ Commission — ตัดเต็มก่อนจาก pot ของ 3 สมาชิก
+export function calcCommissionShouldPay(project: Project, clientPaid: number): number {
+  const commission = getCommission(project);
+  const membersPot = _calcMembersPot(project, clientPaid);
+  return Math.min(commission, Math.max(0, membersPot));
+}
+
+// ส่วนที่ต้องโอนให้สมาชิก (หลังหัก commission จาก members' pot)
+export function calcMemberShouldPay(project: Project, memberId: MemberId, clientPaid: number): number {
+  const memberSum = calcMemberSumRaw(project);
+  if (memberSum <= 0) return 0;
+  const membersPot = _calcMembersPot(project, clientPaid);
+  const commissionTaken = calcCommissionShouldPay(project, clientPaid);
+  const afterCommission = Math.max(0, membersPot - commissionTaken);
+  return calcMemberRawIncome(project, memberId) * (afterCommission / memberSum);
+}
+
+// ============ Rounded shares (จำนวนเต็มบาท, Coordinator ดูดเศษ) ============
+// คำนวณยอดโอนเป็นจำนวนเต็มบาทเสมอ — Coordinator (ton) จะดูดเศษทั้งหมด
+// ทำให้รวมตรงกับยอดที่ลูกค้าจ่าย ไม่มี ฿0.50 รั่ว
+//
+// ลำดับการปัด:
+// 1. Manager + Pool: round(raw × cappedPaid / totalCost)
+// 2. Commission: round(min(commission, exactMembersPot))
+// 3. Specialist + Analyst: round(remainingForMembers × theirRaw / memberSumRaw)
+// 4. Coordinator: remainingForMembers − Specialist − Analyst (absorb เศษ)
+
+export interface RoundedShares {
+  members: Record<MemberId, number>;
+  horse: number;
+  pool: number;
+  commission: number;
+  total: number; // = sum ของทั้งหมด (= cappedPaid)
+}
+
+export function calcRoundedShares(project: Project, clientPaid: number): RoundedShares {
+  const totalCost = calcProjectTotalCost(project);
+  const cappedPaid = Math.min(totalCost, Math.max(0, clientPaid));
+
+  if (totalCost <= 0) {
+    return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, total: 0 };
+  }
+
+  // 1. Manager + Pool: raw proportional, rounded
+  const horse = Math.round((calcHorseRawIncome(project) * cappedPaid) / totalCost);
+  const pool = Math.round((calcPoolRawIncome(project) * cappedPaid) / totalCost);
+
+  // 2. Commission: ตัดจาก members' pot ก่อน (จำนวนเต็ม)
+  const commissionAmount = getCommission(project);
+  const memberSumRaw = calcMemberSumRaw(project);
+  const exactMembersPot = (memberSumRaw * cappedPaid) / totalCost;
+  const commission = Math.round(Math.min(commissionAmount, exactMembersPot));
+
+  // 3. ที่เหลือสำหรับ 3 สมาชิก = cappedPaid - horse - pool - commission
+  const remainingForMembers = Math.max(0, cappedPaid - horse - pool - commission);
+
+  // 4. Specialist + Analyst rounded, Coordinator (ton) absorb เศษ
+  const tangmoRaw = calcMemberRawIncome(project, 'tangmo');
+  const frankRaw = calcMemberRawIncome(project, 'frank');
+  const tangmo = memberSumRaw > 0 ? Math.round((remainingForMembers * tangmoRaw) / memberSumRaw) : 0;
+  const frank = memberSumRaw > 0 ? Math.round((remainingForMembers * frankRaw) / memberSumRaw) : 0;
+  const ton = Math.max(0, remainingForMembers - tangmo - frank);
+
+  return { members: { tangmo, frank, ton }, horse, pool, commission, total: cappedPaid };
+}
+
+// Convenience: yodtem expected NET ของแต่ละ recipient เมื่อโครงการจ่ายครบ (rounded)
+export function calcRoundedExpected(project: Project): RoundedShares {
+  return calcRoundedShares(project, calcProjectTotalCost(project));
+}
+
+// Delta สำหรับ per-installment table — ที่ recipient ควรได้ "เฉพาะงวดนี้"
+// = (rounded share เมื่อ cumulative paid = afterCumulative) − (rounded share เมื่อ cumulative paid = beforeCumulative)
+export function calcRoundedSharesDelta(project: Project, beforeCumulative: number, afterCumulative: number): RoundedShares {
+  const before = calcRoundedShares(project, beforeCumulative);
+  const after = calcRoundedShares(project, afterCumulative);
+  return {
+    members: {
+      tangmo: after.members.tangmo - before.members.tangmo,
+      frank: after.members.frank - before.members.frank,
+      ton: after.members.ton - before.members.ton,
+    },
+    horse: after.horse - before.horse,
+    pool: after.pool - before.pool,
+    commission: after.commission - before.commission,
+    total: after.total - before.total,
+  };
 }
 
 export interface QuotationItem {
