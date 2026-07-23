@@ -51,6 +51,10 @@ export function Modal({
   bare = false,
 }: ModalProps) {
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  // เก็บ onClose ล่าสุดใน ref เพื่อไม่ให้ useEffect ล้ม-รี run ทุก parent render
+  // (ไม่งั้น cleanup จะ steal focus จาก input → พิมพ์ได้แค่ตัวเดียว)
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -60,7 +64,7 @@ export function Modal({
     document.body.style.overflow = 'hidden';
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', handleKey);
 
@@ -69,7 +73,7 @@ export function Modal({
       document.body.style.overflow = prevOverflow;
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
