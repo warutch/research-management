@@ -71,6 +71,27 @@ drop policy if exists "Allow authenticated all" on tracking_activities;
 create policy "Allow authenticated all" on tracking_activities
   for all to authenticated using (true) with check (true);
 
+-- Pool money transactions (เงินกองกลาง)
+-- balance = Σ(pool_transactions type=in) + Σ(distributions where recipient='pool') − Σ(pool_transactions type=out)
+create table if not exists pool_transactions (
+  id uuid primary key,
+  type text not null,           -- opening_balance | transfer_in | spending | to_member | to_other | other_in | other_out
+  amount numeric not null default 0,
+  date text default '',
+  source text default '',       -- สำหรับ transfer_in
+  category text default '',     -- สำหรับ spending
+  recipient_member_id text default '',  -- สำหรับ to_member (tangmo|frank|ton)
+  recipient_name text default '',       -- สำหรับ to_other
+  description text default '',
+  slip_urls jsonb default '[]'::jsonb,
+  created_at timestamptz default now()
+);
+
+alter table pool_transactions enable row level security;
+drop policy if exists "Allow authenticated all" on pool_transactions;
+create policy "Allow authenticated all" on pool_transactions
+  for all to authenticated using (true) with check (true);
+
 -- Quotations (items เก็บเป็น JSONB)
 create table if not exists quotations (
   id uuid primary key,

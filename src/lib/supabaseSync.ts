@@ -1,4 +1,4 @@
-import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId, ProjectType } from '@/types';
+import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId, ProjectType, PoolTransaction, PoolTxType } from '@/types';
 
 // DB column ชื่อ `workspace` (จาก migration) → TS field ชื่อ `type`
 const DEFAULT_PROJECT_TYPE: ProjectType = 'doctor';
@@ -217,6 +217,41 @@ export function trackingActivityFromDb(row: any): TrackingActivity {
     deadline: row.deadline || '',
     status: (row.status || 'todo') as TrackingStatus,
     priority: (row.priority || 'medium') as TrackingPriority,
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+// --- Pool Transaction ---
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function poolTxToDb(t: PoolTransaction): any {
+  return {
+    id: t.id,
+    type: t.type,
+    amount: t.amount,
+    date: t.date,
+    source: t.source || '',
+    category: t.category || '',
+    recipient_member_id: t.recipientMemberId || '',
+    recipient_name: t.recipientName || '',
+    description: t.description,
+    slip_urls: t.slipUrls || [],
+    created_at: t.createdAt,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function poolTxFromDb(row: any): PoolTransaction {
+  return {
+    id: row.id,
+    type: row.type as PoolTxType,
+    amount: Number(row.amount) || 0,
+    date: row.date || '',
+    source: row.source || '',
+    category: row.category || '',
+    recipientMemberId: row.recipient_member_id ? (row.recipient_member_id as MemberId) : undefined,
+    recipientName: row.recipient_name || '',
+    description: row.description || '',
+    slipUrls: row.slip_urls || [],
     createdAt: row.created_at || new Date().toISOString(),
   };
 }

@@ -17,6 +17,7 @@ import {
   Cloud,
   User as UserIcon,
   CalendarDays,
+  PiggyBank,
 } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/tracking', label: 'Tracking Activities', icon: CalendarDays },
   { href: '/quotations', label: 'ใบเสนอราคา', icon: FileText },
   { href: '/payments', label: 'ประวัติการชำระเงิน', icon: Banknote },
+  { href: '/pool', label: 'เงินกองกลาง', icon: PiggyBank },
 ];
 
 export default function Sidebar() {

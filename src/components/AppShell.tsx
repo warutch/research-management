@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Wallet, FolderKanban, CalendarDays, FileText, Banknote, type LucideIcon,
+  LayoutDashboard, Wallet, FolderKanban, CalendarDays, FileText, Banknote, PiggyBank, type LucideIcon,
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import AuthGuard from './AuthGuard';
@@ -84,6 +84,7 @@ const PAGE_META: Record<string, { title: string; subtitle: string; icon: LucideI
   '/tracking': { title: 'Tracking Activities', subtitle: 'ติดตามกิจกรรมและกำหนดการ', icon: CalendarDays },
   '/quotations': { title: 'ใบเสนอราคา', subtitle: 'จัดการใบเสนอราคาของโครงการ', icon: FileText },
   '/payments': { title: 'ประวัติการชำระเงิน', subtitle: 'บันทึกและตรวจสอบการชำระเงิน', icon: Banknote },
+  '/pool': { title: 'เงินกองกลาง', subtitle: 'จัดการเงิน Pool money — รับเข้า/จ่ายออก', icon: PiggyBank },
 };
 
 function PageHeader() {

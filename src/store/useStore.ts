@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import {
   Project, Quotation, Activity, MemberId, PaymentInstallment, PaymentRecord,
-  DistributionRecord, TrackingActivity, HORSE_PERCENT, POOL_PERCENT,
+  DistributionRecord, TrackingActivity, PoolTransaction, HORSE_PERCENT, POOL_PERCENT,
   ProjectType, ProjectTypeFilter, ProjectStatus, MEMBERS, PROJECT_TYPE_LABELS,
 } from '@/types';
 
@@ -22,6 +22,7 @@ import {
   distributionToDb, distributionFromDb,
   quotationToDb, quotationFromDb,
   trackingActivityToDb, trackingActivityFromDb,
+  poolTxToDb, poolTxFromDb,
   markWorkspaceColumnMissing, isWorkspaceMissingError,
   markCommissionColumnMissing, isCommissionMissingError,
 } from '@/lib/supabaseSync';
@@ -58,6 +59,7 @@ interface AppState {
   payments: PaymentRecord[];
   distributions: DistributionRecord[];
   trackingActivities: TrackingActivity[];
+  poolTransactions: PoolTransaction[]; // ไม่ผูกโครงการ — ไม่ต้อง filter
   dataLoaded: boolean;
 
   loadAllData: () => Promise<void>;
@@ -97,6 +99,11 @@ interface AppState {
   addTrackingActivity: (activity: Omit<TrackingActivity, 'id' | 'createdAt'>) => string;
   updateTrackingActivity: (id: string, data: Partial<TrackingActivity>) => void;
   deleteTrackingActivity: (id: string) => void;
+
+  // Pool Transactions (เงินกองกลาง)
+  addPoolTransaction: (tx: Omit<PoolTransaction, 'id' | 'createdAt'>) => string;
+  updatePoolTransaction: (id: string, data: Partial<PoolTransaction>) => void;
+  deletePoolTransaction: (id: string) => void;
 
   // Migration helper
   migrateFromLocalStorage: () => Promise<{ projects: number; payments: number; distributions: number; quotations: number }>;
@@ -276,16 +283,18 @@ export const useStore = create<AppState>()((set, get) => ({
   payments: [],
   distributions: [],
   trackingActivities: [],
+  poolTransactions: [],
   dataLoaded: false,
 
   loadAllData: async () => {
     try {
-      const [projectsRes, paymentsRes, distributionsRes, quotationsRes, trackingRes] = await Promise.all([
+      const [projectsRes, paymentsRes, distributionsRes, quotationsRes, trackingRes, poolRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
         supabase.from('payments').select('*'),
         supabase.from('distributions').select('*'),
         supabase.from('quotations').select('*'),
         supabase.from('tracking_activities').select('*'),
+        supabase.from('pool_transactions').select('*').order('date', { ascending: false }),
       ]);
 
       logErr('load projects', projectsRes.error);
@@ -293,12 +302,14 @@ export const useStore = create<AppState>()((set, get) => ({
       logErr('load distributions', distributionsRes.error);
       logErr('load quotations', quotationsRes.error);
       logErr('load tracking', trackingRes.error);
+      logErr('load pool', poolRes.error);
 
       const _allProjects = (projectsRes.data || []).map(projectFromDb);
       const _allPayments = (paymentsRes.data || []).map(paymentFromDb);
       const _allDistributions = (distributionsRes.data || []).map(distributionFromDb);
       const _allQuotations = (quotationsRes.data || []).map(quotationFromDb);
       const _allTrackingActivities = (trackingRes.data || []).map(trackingActivityFromDb);
+      const poolTransactions = (poolRes.data || []).map(poolTxFromDb);
 
       set((state) => {
         // ครั้งแรกที่โหลด — set yearFilter เป็นปีล่าสุดอัตโนมัติ (default)
@@ -309,6 +320,7 @@ export const useStore = create<AppState>()((set, get) => ({
         }
         return {
           _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
+          poolTransactions,
           yearFilter,
           ...recomputeFiltered({
             _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
@@ -330,6 +342,7 @@ export const useStore = create<AppState>()((set, get) => ({
     set({
       _allProjects: [], _allQuotations: [], _allPayments: [], _allDistributions: [], _allTrackingActivities: [],
       projects: [], quotations: [], payments: [], distributions: [], trackingActivities: [],
+      poolTransactions: [],
       dataLoaded: false,
     });
   },
@@ -587,6 +600,28 @@ export const useStore = create<AppState>()((set, get) => ({
       return { _allTrackingActivities, ...recomputeFiltered({ ...state, _allTrackingActivities }) };
     });
     supabase.from('tracking_activities').delete().eq('id', id).then(({ error }) => logErr('deleteTrackingActivity', error));
+  },
+
+  // ============ Pool Transactions (เงินกองกลาง — ไม่ผูกโครงการ) ============
+  addPoolTransaction: (txData) => {
+    const id = uuidv4();
+    const tx: PoolTransaction = { ...txData, id, createdAt: new Date().toISOString() };
+    set((state) => ({ poolTransactions: [tx, ...state.poolTransactions] }));
+    supabase.from('pool_transactions').insert(poolTxToDb(tx)).then(({ error }) => logErr('addPoolTransaction', error));
+    return id;
+  },
+
+  updatePoolTransaction: (id, data) => {
+    set((state) => ({
+      poolTransactions: state.poolTransactions.map((t) => (t.id === id ? { ...t, ...data } : t)),
+    }));
+    const updated = get().poolTransactions.find((t) => t.id === id);
+    if (updated) supabase.from('pool_transactions').update(poolTxToDb(updated)).eq('id', id).then(({ error }) => logErr('updatePoolTransaction', error));
+  },
+
+  deletePoolTransaction: (id) => {
+    set((state) => ({ poolTransactions: state.poolTransactions.filter((t) => t.id !== id) }));
+    supabase.from('pool_transactions').delete().eq('id', id).then(({ error }) => logErr('deletePoolTransaction', error));
   },
 
   // ============ Migration: LocalStorage → Supabase ============

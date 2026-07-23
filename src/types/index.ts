@@ -426,3 +426,79 @@ export function getSlips(record: { slipUrl?: string; slipUrls?: string[] }): str
   return arr.filter(Boolean);
 }
 
+// ============ Pool money (เงินกองกลาง) ============
+// รายการรับ-จ่ายเงิน pool ที่บันทึกด้วยตนเอง
+// balance ปัจจุบัน = Σ inflows − Σ outflows
+//   inflows = pool_transactions (type=in) + distributions (recipient='pool')
+//   outflows = pool_transactions (type=out)
+
+export type PoolTxType =
+  | 'opening_balance'   // 🏦 ยอดยกมาครั้งแรก (in)
+  | 'transfer_in'       // 📥 ยกยอดเข้าจากบัญชีอื่น (in)
+  | 'spending'          // 🛒 ค่าใช้จ่ายกิจกรรม (out)
+  | 'to_member'         // 👤 โอนให้สมาชิก (out)
+  | 'to_other'          // 👥 โอนให้บุคคลอื่น (out)
+  | 'other_in'          // 📝 อื่นๆ รับเข้า (in)
+  | 'other_out';        // 📝 อื่นๆ จ่ายออก (out)
+
+export const POOL_TX_LABELS: Record<PoolTxType, string> = {
+  opening_balance: 'ยอดยกมา',
+  transfer_in: 'ยกยอดเข้า',
+  spending: 'ค่าใช้จ่าย',
+  to_member: 'โอนให้สมาชิก',
+  to_other: 'โอนให้บุคคลอื่น',
+  other_in: 'อื่นๆ (รับเข้า)',
+  other_out: 'อื่นๆ (จ่ายออก)',
+};
+
+export const POOL_TX_ICONS: Record<PoolTxType, string> = {
+  opening_balance: '🏦',
+  transfer_in: '📥',
+  spending: '🛒',
+  to_member: '👤',
+  to_other: '👥',
+  other_in: '📝',
+  other_out: '📝',
+};
+
+// ทิศทางเงิน: in = บวก, out = ลบ
+export function getPoolTxDirection(type: PoolTxType): 'in' | 'out' {
+  return type === 'opening_balance' || type === 'transfer_in' || type === 'other_in' ? 'in' : 'out';
+}
+
+export interface PoolTransaction {
+  id: string;
+  type: PoolTxType;
+  amount: number;               // เป็นบวกเสมอ (sign มาจาก type)
+  date: string;                 // yyyy-mm-dd
+  source?: string;              // สำหรับ transfer_in: จากบัญชี/แหล่งไหน
+  category?: string;            // สำหรับ spending: office/tools/travel/etc.
+  recipientMemberId?: MemberId; // สำหรับ to_member
+  recipientName?: string;       // สำหรับ to_other (ชื่อคนรับ)
+  description: string;          // รายละเอียด
+  slipUrls?: string[];          // base64 slip images
+  createdAt: string;
+}
+
+// คำนวณ balance ของ pool money จาก transactions + distributions ที่ไปที่ recipient='pool'
+export function calcPoolBalance(
+  poolTransactions: PoolTransaction[],
+  distributions: DistributionRecord[],
+): number {
+  const fromTxIn = poolTransactions
+    .filter((t) => getPoolTxDirection(t.type) === 'in')
+    .reduce((s, t) => s + t.amount, 0);
+  const fromTxOut = poolTransactions
+    .filter((t) => getPoolTxDirection(t.type) === 'out')
+    .reduce((s, t) => s + t.amount, 0);
+  const fromDistributions = distributions
+    .filter((d) => d.recipientId === 'pool')
+    .reduce((s, d) => s + d.amount, 0);
+  return fromTxIn + fromDistributions - fromTxOut;
+}
+
+// คำนวณ signed amount (+/-) ของ transaction
+export function getPoolTxSignedAmount(tx: PoolTransaction): number {
+  return getPoolTxDirection(tx.type) === 'in' ? tx.amount : -tx.amount;
+}
+
