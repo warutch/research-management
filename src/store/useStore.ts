@@ -25,7 +25,9 @@ import {
   poolTxToDb, poolTxFromDb,
   markWorkspaceColumnMissing, isWorkspaceMissingError,
   markCommissionColumnMissing, isCommissionMissingError,
+  isTableMissingError,
 } from '@/lib/supabaseSync';
+import { toast } from '@/components/Toast';
 
 // ============================================================
 // Type filter (All / Doctor / Student)
@@ -303,6 +305,16 @@ export const useStore = create<AppState>()((set, get) => ({
       logErr('load quotations', quotationsRes.error);
       logErr('load tracking', trackingRes.error);
       logErr('load pool', poolRes.error);
+
+      // ถ้า table pool_transactions ยัง missing → แจ้งครั้งเดียว
+      if (poolRes.error && isTableMissingError(poolRes.error, 'pool_transactions')) {
+        toast.warning(
+          '⚠️ ยังไม่ได้สร้าง table "pool_transactions" ใน Supabase\n' +
+          'ไปที่ Supabase Dashboard → SQL Editor → รัน supabase/schema.sql\n' +
+          '(หน้าเงินกองกลางจะบันทึกข้อมูลไม่ได้จนกว่าจะรัน migration)',
+          { duration: 12000 },
+        );
+      }
 
       const _allProjects = (projectsRes.data || []).map(projectFromDb);
       const _allPayments = (paymentsRes.data || []).map(paymentFromDb);
@@ -606,22 +618,67 @@ export const useStore = create<AppState>()((set, get) => ({
   addPoolTransaction: (txData) => {
     const id = uuidv4();
     const tx: PoolTransaction = { ...txData, id, createdAt: new Date().toISOString() };
+    // Optimistic update
     set((state) => ({ poolTransactions: [tx, ...state.poolTransactions] }));
-    supabase.from('pool_transactions').insert(poolTxToDb(tx)).then(({ error }) => logErr('addPoolTransaction', error));
+    supabase.from('pool_transactions').insert(poolTxToDb(tx)).then(({ error }) => {
+      if (!error) return;
+      logErr('addPoolTransaction', error);
+      // Rollback state
+      set((state) => ({ poolTransactions: state.poolTransactions.filter((t) => t.id !== id) }));
+      // Detect table missing → helpful hint
+      if (isTableMissingError(error, 'pool_transactions')) {
+        toast.error(
+          '⚠️ ยังไม่ได้สร้าง table pool_transactions ใน Supabase\n' +
+          'ไปที่ Supabase Dashboard → SQL Editor → รัน schema.sql (ส่วน pool_transactions)',
+          { duration: 10000 },
+        );
+      } else {
+        toast.error(`บันทึกไม่สำเร็จ: ${(error as { message?: string })?.message || 'unknown error'}`);
+      }
+    });
     return id;
   },
 
   updatePoolTransaction: (id, data) => {
+    // เก็บ snapshot ก่อนแก้ (สำหรับ rollback)
+    const prev = get().poolTransactions.find((t) => t.id === id);
     set((state) => ({
       poolTransactions: state.poolTransactions.map((t) => (t.id === id ? { ...t, ...data } : t)),
     }));
     const updated = get().poolTransactions.find((t) => t.id === id);
-    if (updated) supabase.from('pool_transactions').update(poolTxToDb(updated)).eq('id', id).then(({ error }) => logErr('updatePoolTransaction', error));
+    if (!updated) return;
+    supabase.from('pool_transactions').update(poolTxToDb(updated)).eq('id', id).then(({ error }) => {
+      if (!error) return;
+      logErr('updatePoolTransaction', error);
+      // Rollback
+      if (prev) {
+        set((state) => ({ poolTransactions: state.poolTransactions.map((t) => (t.id === id ? prev : t)) }));
+      }
+      if (isTableMissingError(error, 'pool_transactions')) {
+        toast.error('⚠️ ยังไม่ได้สร้าง table pool_transactions ใน Supabase — โปรดรัน schema.sql', { duration: 10000 });
+      } else {
+        toast.error(`แก้ไขไม่สำเร็จ: ${(error as { message?: string })?.message || 'unknown error'}`);
+      }
+    });
   },
 
   deletePoolTransaction: (id) => {
+    // เก็บ snapshot ก่อนลบ (สำหรับ rollback)
+    const prev = get().poolTransactions.find((t) => t.id === id);
     set((state) => ({ poolTransactions: state.poolTransactions.filter((t) => t.id !== id) }));
-    supabase.from('pool_transactions').delete().eq('id', id).then(({ error }) => logErr('deletePoolTransaction', error));
+    supabase.from('pool_transactions').delete().eq('id', id).then(({ error }) => {
+      if (!error) return;
+      logErr('deletePoolTransaction', error);
+      // Rollback (คืน record ที่ลบไว้)
+      if (prev) {
+        set((state) => ({ poolTransactions: [prev, ...state.poolTransactions] }));
+      }
+      if (isTableMissingError(error, 'pool_transactions')) {
+        toast.error('⚠️ ยังไม่ได้สร้าง table pool_transactions ใน Supabase — โปรดรัน schema.sql', { duration: 10000 });
+      } else {
+        toast.error(`ลบไม่สำเร็จ: ${(error as { message?: string })?.message || 'unknown error'}`);
+      }
+    });
   },
 
   // ============ Migration: LocalStorage → Supabase ============

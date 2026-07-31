@@ -43,6 +43,23 @@ export function isCommissionMissingError(e: unknown): boolean {
   return /commission/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
 }
 
+// Detect: relation/table does not exist (PostgreSQL 42P01 / PostgREST PGRST205/PGRST202)
+// เช่น ยังไม่ได้รัน migration สำหรับ pool_transactions
+export function isTableMissingError(e: unknown, tableName?: string): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = e as any;
+  const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
+  // 42P01 = undefined_table in Postgres; PGRST205 = table not in schema cache
+  const codeMatch = err?.code === '42P01' || err?.code === 'PGRST205' || err?.code === 'PGRST202';
+  const msgMatch = /does not exist|not exist|no relation|schema cache/i.test(msg);
+  if (!codeMatch && !msgMatch) return false;
+  if (tableName && !new RegExp(tableName, 'i').test(msg)) {
+    // ถ้าระบุ tableName แต่ msg ไม่ตรง → ยังถือว่า table missing แบบทั่วไป (ไม่ใช่ specific)
+    return codeMatch; // ให้ code เป็นตัวชี้ขาด
+  }
+  return true;
+}
+
 // ================================================================
 // Helpers แปลงข้อมูลระหว่าง camelCase (TypeScript) ↔ snake_case (DB)
 // ================================================================
