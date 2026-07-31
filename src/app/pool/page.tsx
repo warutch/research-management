@@ -176,7 +176,15 @@ export default function PoolPage() {
     return Array.from(months).sort((a, b) => b.localeCompare(a));
   }, [allItems]);
 
-  // Filter + sort by date desc
+  // helper: createdAt สำหรับ tie-breaker (เมื่อวันที่ธุรกรรมตรงกัน)
+  const getItemCreatedAt = (it: ListItem): string => {
+    if (it.kind === 'pool_tx') return it.tx.createdAt || '';
+    return it.dist.createdAt || '';
+  };
+
+  // Filter + sort:
+  //   primary   → date desc (วันที่เกิดธุรกรรม, ใหม่ล่าสุดบนสุด)
+  //   secondary → createdAt desc (ถ้าวันเดียวกัน — บันทึกล่าสุดขึ้นก่อน)
   const filtered = useMemo(() => {
     return allItems
       .filter((it) => {
@@ -185,7 +193,11 @@ export default function PoolPage() {
         return it.kind === 'pool_tx' && it.tx.type === typeFilter;
       })
       .filter((it) => (monthFilter === 'all' || (it.date || '').startsWith(monthFilter)))
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      .sort((a, b) => {
+        const byDate = (b.date || '').localeCompare(a.date || '');
+        if (byDate !== 0) return byDate;
+        return (getItemCreatedAt(b)).localeCompare(getItemCreatedAt(a));
+      });
   }, [allItems, typeFilter, monthFilter]);
 
   // signed amount ของแต่ละ item (+ = in, − = out)
@@ -351,10 +363,10 @@ export default function PoolPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-green-600">
-                          +{formatCurrency(dist.amount)}
+                        <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-green-600 whitespace-nowrap">
+                          {`+${formatCurrency(dist.amount)}`}
                         </td>
-                        <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums">{formatCurrency(balanceAfter)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">{formatCurrency(balanceAfter)}</td>
                         <td className="px-4 py-2.5 text-right">
                           <div className="flex items-center justify-end gap-1">
                             {slips.length > 0 && (
@@ -401,10 +413,10 @@ export default function PoolPage() {
                           </span>
                         </div>
                       </td>
-                      <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${isIn ? 'text-green-600' : 'text-rose-600'}`}>
-                        {isIn ? '+' : '−'}{formatCurrency(tx.amount)}
+                      <td className={`px-4 py-2.5 text-right font-semibold tabular-nums whitespace-nowrap ${isIn ? 'text-green-600' : 'text-rose-600'}`}>
+                        {`${isIn ? '+' : '−'}${formatCurrency(tx.amount)}`}
                       </td>
-                      <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums">{formatCurrency(balanceAfter)}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">{formatCurrency(balanceAfter)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {slips.length > 0 && (
@@ -432,7 +444,7 @@ export default function PoolPage() {
                         else outSum += -amt;
                       }
                       const net = inSum - outSum;
-                      return <span className={net >= 0 ? 'text-green-600' : 'text-rose-600'}>{net >= 0 ? '+' : ''}{formatCurrency(net)}</span>;
+                      return <span className={`whitespace-nowrap ${net >= 0 ? 'text-green-600' : 'text-rose-600'}`}>{`${net >= 0 ? '+' : ''}${formatCurrency(net)}`}</span>;
                     })()}
                   </td>
                   <td className="px-4 py-2.5 text-right text-gray-500 text-xs">ยอด ณ ปัจจุบัน: <strong className="text-gray-700">{formatCurrency(balance)}</strong></td>
