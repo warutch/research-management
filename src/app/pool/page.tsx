@@ -1,12 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/store/useStore';
 import {
-  MEMBERS, MemberId, PoolTransaction, PoolTxType,
+  MEMBERS, MemberId, PoolTransaction, PoolTxType, DistributionRecord, Project,
   POOL_TX_LABELS, POOL_TX_ICONS,
   getPoolTxDirection, getPoolTxSignedAmount,
-  calcPoolBalance,
+  calcPoolBalance, getSlips,
 } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -16,7 +17,7 @@ import { Tooltip as InfoTip, TooltipRow } from '@/components/Tooltip';
 import SlipUploader from '@/components/SlipUploader';
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Pencil, Trash2, Save, X, Image as ImageIcon,
-  Landmark, ArrowDownToLine, ShoppingCart, User, Users, FileText,
+  Landmark, ArrowDownToLine, ShoppingCart, User, Users, FileText, FolderKanban, ExternalLink,
 } from 'lucide-react';
 
 type TxFormState = Omit<PoolTransaction, 'id' | 'createdAt'>;
@@ -43,11 +44,20 @@ const TYPE_META: Record<PoolTxType, { icon: typeof Landmark; color: string }> = 
   other_out:       { icon: FileText, color: 'text-rose-600 bg-rose-50 border-rose-200' },
 };
 
+// Type filter: PoolTxType + virtual 'from_project'
+type FilterType = PoolTxType | 'from_project' | 'all';
+
+// Unified list item: manual pool_tx OR distribution จากโครงการ
+type ListItem =
+  | { kind: 'pool_tx'; date: string; tx: PoolTransaction }
+  | { kind: 'from_project'; date: string; dist: DistributionRecord; project: Project | null };
+
 export default function PoolPage() {
   const hydrated = useHydrated();
   const {
     poolTransactions,
     _allDistributions,
+    _allProjects,
     addPoolTransaction, updatePoolTransaction, deletePoolTransaction,
   } = useStore();
 
@@ -57,7 +67,7 @@ export default function PoolPage() {
   const [viewSlipUrl, setViewSlipUrl] = useState<string | null>(null);
 
   // Filters
-  const [typeFilter, setTypeFilter] = useState<PoolTxType | 'all'>('all');
+  const [typeFilter, setTypeFilter] = useState<FilterType>('all');
   const [monthFilter, setMonthFilter] = useState<string>('all'); // 'yyyy-mm' or 'all'
 
   const openAdd = (type: PoolTxType) => {
@@ -141,29 +151,56 @@ export default function PoolPage() {
     [poolTransactions],
   );
 
-  // Month options สำหรับ filter
+  // รวมรายการ manual pool_tx + distribution ที่ recipient='pool' (auto จากโครงการ)
+  const allItems = useMemo<ListItem[]>(() => {
+    const manual: ListItem[] = poolTransactions.map((tx) => ({
+      kind: 'pool_tx' as const,
+      date: tx.date,
+      tx,
+    }));
+    const fromProjects: ListItem[] = _allDistributions
+      .filter((d) => d.recipientId === 'pool')
+      .map((d) => ({
+        kind: 'from_project' as const,
+        date: d.paidDate,
+        dist: d,
+        project: _allProjects.find((p) => p.id === d.projectId) || null,
+      }));
+    return [...manual, ...fromProjects];
+  }, [poolTransactions, _allDistributions, _allProjects]);
+
+  // Month options — รวมทั้ง manual + distribution
   const monthOptions = useMemo(() => {
     const months = new Set<string>();
-    poolTransactions.forEach((t) => { if (t.date) months.add(t.date.slice(0, 7)); });
+    allItems.forEach((it) => { if (it.date) months.add(it.date.slice(0, 7)); });
     return Array.from(months).sort((a, b) => b.localeCompare(a));
-  }, [poolTransactions]);
+  }, [allItems]);
 
   // Filter + sort by date desc
   const filtered = useMemo(() => {
-    return poolTransactions
-      .filter((t) => (typeFilter === 'all' || t.type === typeFilter))
-      .filter((t) => (monthFilter === 'all' || t.date.startsWith(monthFilter)))
-      .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
-  }, [poolTransactions, typeFilter, monthFilter]);
+    return allItems
+      .filter((it) => {
+        if (typeFilter === 'all') return true;
+        if (typeFilter === 'from_project') return it.kind === 'from_project';
+        return it.kind === 'pool_tx' && it.tx.type === typeFilter;
+      })
+      .filter((it) => (monthFilter === 'all' || (it.date || '').startsWith(monthFilter)))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }, [allItems, typeFilter, monthFilter]);
 
-  // Running balance สำหรับแสดงข้างขวาของแต่ละแถว (คิดจาก start ของ time ← ล่าสุดอยู่บน)
+  // signed amount ของแต่ละ item (+ = in, − = out)
+  const getItemSignedAmount = (it: ListItem): number => {
+    if (it.kind === 'from_project') return it.dist.amount; // จากโครงการ = in เสมอ
+    return getPoolTxSignedAmount(it.tx);
+  };
+
+  // Running balance สำหรับแสดงข้างขวาของแต่ละแถว
   const filteredWithBalance = useMemo(() => {
-    // เริ่มจาก current balance แล้ว undo ทีละ tx จากบนลงล่าง
-    const rows: Array<{ tx: PoolTransaction; balanceAfter: number }> = [];
+    const rows: Array<{ item: ListItem; balanceAfter: number }> = [];
     let running = balance;
-    for (const tx of filtered) {
-      rows.push({ tx, balanceAfter: running });
-      running -= getPoolTxSignedAmount(tx);
+    for (const item of filtered) {
+      rows.push({ item, balanceAfter: running });
+      running -= getItemSignedAmount(item);
     }
     return rows;
   }, [filtered, balance]);
@@ -237,10 +274,11 @@ export default function PoolPage() {
           <span className="text-gray-500">ประเภท:</span>
           <select
             value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as PoolTxType | 'all')}
+            onChange={(e) => setTypeFilter(e.target.value as FilterType)}
             className="border rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="all">ทุกประเภท</option>
+            <option value="from_project">📥 จากโครงการ (auto)</option>
             {(Object.keys(POOL_TX_LABELS) as PoolTxType[]).map((t) => (
               <option key={t} value={t}>{POOL_TX_ICONS[t]} {POOL_TX_LABELS[t]}</option>
             ))}
@@ -282,13 +320,70 @@ export default function PoolPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredWithBalance.map(({ tx, balanceAfter }) => {
+                {filteredWithBalance.map(({ item, balanceAfter }) => {
+                  // === row: จากโครงการ (Distribution) ===
+                  if (item.kind === 'from_project') {
+                    const { dist, project } = item;
+                    const slips = getSlips(dist);
+                    return (
+                      <tr key={`d-${dist.id}`} className="border-t border-gray-100 hover:bg-gray-50/50 bg-green-50/20">
+                        <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{dist.paidDate ? formatDate(dist.paidDate) : '-'}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border text-green-700 bg-green-50 border-green-200">
+                            <FolderKanban size={11} /> จากโครงการ
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-700">
+                          <div className="flex flex-col">
+                            <span>
+                              {project ? (
+                                <>
+                                  <span className="font-mono text-xs text-gray-500 mr-1">{project.projectCode}</span>
+                                  {project.name}
+                                </>
+                              ) : (
+                                <span className="text-gray-400 italic">โครงการถูกลบ</span>
+                              )}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {project?.client && `ผู้วิจัย: ${project.client}`}
+                              {dist.note && ` • ${dist.note}`}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-green-600">
+                          +{formatCurrency(dist.amount)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums">{formatCurrency(balanceAfter)}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {slips.length > 0 && (
+                              <button onClick={() => setViewSlipUrl(slips[0])} className="p-1 text-gray-400 hover:text-indigo-600" title="ดู Slip">
+                                <ImageIcon size={13} />
+                              </button>
+                            )}
+                            {project && (
+                              <Link href={`/projects?id=${project.id}`} className="p-1 text-gray-400 hover:text-indigo-600" title="ไปที่โครงการ">
+                                <ExternalLink size={13} />
+                              </Link>
+                            )}
+                            <span className="p-1 text-gray-300" title="แก้ไขในหน้าโครงการเท่านั้น">
+                              <Trash2 size={13} />
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  // === row: manual pool_tx ===
+                  const { tx } = item;
                   const isIn = getPoolTxDirection(tx.type) === 'in';
                   const meta = TYPE_META[tx.type];
                   const Icon = meta.icon;
                   const slips = tx.slipUrls || [];
                   return (
-                    <tr key={tx.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                    <tr key={`t-${tx.id}`} className="border-t border-gray-100 hover:bg-gray-50/50">
                       <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{tx.date ? formatDate(tx.date) : '-'}</td>
                       <td className="px-4 py-2.5">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${meta.color}`}>
@@ -330,8 +425,12 @@ export default function PoolPage() {
                   <td className="px-4 py-2.5" colSpan={3}>รวมที่แสดง</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">
                     {(() => {
-                      const inSum = filtered.filter((t) => getPoolTxDirection(t.type) === 'in').reduce((s, t) => s + t.amount, 0);
-                      const outSum = filtered.filter((t) => getPoolTxDirection(t.type) === 'out').reduce((s, t) => s + t.amount, 0);
+                      let inSum = 0, outSum = 0;
+                      for (const it of filtered) {
+                        const amt = getItemSignedAmount(it);
+                        if (amt >= 0) inSum += amt;
+                        else outSum += -amt;
+                      }
                       const net = inSum - outSum;
                       return <span className={net >= 0 ? 'text-green-600' : 'text-rose-600'}>{net >= 0 ? '+' : ''}{formatCurrency(net)}</span>;
                     })()}
