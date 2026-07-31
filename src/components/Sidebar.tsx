@@ -18,6 +18,7 @@ import {
   User as UserIcon,
   CalendarDays,
   PiggyBank,
+  RefreshCw,
 } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -39,7 +40,8 @@ export default function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { projects, quotations, payments, distributions, migrateFromLocalStorage } = useStore();
+  const { projects, quotations, payments, distributions, migrateFromLocalStorage, reloadAllData } = useStore();
+  const [reloading, setReloading] = useState(false);
   const { user } = useAuth();
 
   const handleBrandClick = () => {
@@ -181,6 +183,14 @@ export default function Sidebar() {
 
         {/* Data tools */}
         <div className="px-3 py-3 border-t border-gray-200 space-y-1">
+          <button
+            onClick={async () => { setReloading(true); try { await reloadAllData(); } finally { setReloading(false); } }}
+            disabled={reloading}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors w-full disabled:opacity-50"
+            title="โหลดข้อมูลใหม่จาก Supabase — ใช้เวลาข้อมูลดูแปลก/ไม่ครบ"
+          >
+            <RefreshCw size={15} className={reloading ? 'animate-spin' : ''} /> {reloading ? 'กำลังโหลด...' : 'Reload ข้อมูล'}
+          </button>
           <button onClick={handleExport} className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors w-full">
             <Download size={15} /> Export JSON
           </button>

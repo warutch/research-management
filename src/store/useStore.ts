@@ -65,6 +65,7 @@ interface AppState {
   dataLoaded: boolean;
 
   loadAllData: () => Promise<void>;
+  reloadAllData: () => Promise<void>; // force re-fetch (ใช้เวลาข้อมูลไม่ครบ)
   resetStore: () => void;
 
   // Projects
@@ -289,6 +290,9 @@ export const useStore = create<AppState>()((set, get) => ({
   dataLoaded: false,
 
   loadAllData: async () => {
+    // ใช้ allSettled — ถ้า query ใดล้ม จะไม่ทำให้ทั้ง batch พังทิ้ง
+    // Critical tables (projects/payments/distributions) → ถ้าล้ม แสดง toast + ไม่ mark dataLoaded=true
+    // Non-critical (tracking/pool) → ล้มได้ (table อาจยังไม่สร้าง) เตือน + ยัง render ได้
     try {
       const [projectsRes, paymentsRes, distributionsRes, quotationsRes, trackingRes, poolRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
@@ -306,14 +310,36 @@ export const useStore = create<AppState>()((set, get) => ({
       logErr('load tracking', trackingRes.error);
       logErr('load pool', poolRes.error);
 
-      // ถ้า table pool_transactions ยัง missing → แจ้งครั้งเดียว
+      // ตรวจ error แบบเจาะจงต่อ table
+      const criticalErrors: string[] = [];
+      if (projectsRes.error) criticalErrors.push(`projects: ${projectsRes.error.message || 'unknown'}`);
+      if (paymentsRes.error) criticalErrors.push(`payments: ${paymentsRes.error.message || 'unknown'}`);
+      if (distributionsRes.error) criticalErrors.push(`distributions: ${distributionsRes.error.message || 'unknown'}`);
+      if (quotationsRes.error) criticalErrors.push(`quotations: ${quotationsRes.error.message || 'unknown'}`);
+
+      // Non-critical: pool_transactions / tracking table missing → แสดง hint แต่โหลด page ต่อได้
       if (poolRes.error && isTableMissingError(poolRes.error, 'pool_transactions')) {
         toast.warning(
           '⚠️ ยังไม่ได้สร้าง table "pool_transactions" ใน Supabase\n' +
-          'ไปที่ Supabase Dashboard → SQL Editor → รัน supabase/schema.sql\n' +
-          '(หน้าเงินกองกลางจะบันทึกข้อมูลไม่ได้จนกว่าจะรัน migration)',
+          'ไปที่ Supabase Dashboard → SQL Editor → รัน supabase/schema.sql',
           { duration: 12000 },
         );
+      } else if (poolRes.error) {
+        toast.error(`โหลด Pool money ไม่สำเร็จ: ${poolRes.error.message || 'unknown'}`);
+      }
+      if (trackingRes.error && !isTableMissingError(trackingRes.error, 'tracking_activities')) {
+        toast.error(`โหลด Tracking ไม่สำเร็จ: ${trackingRes.error.message || 'unknown'}`);
+      }
+
+      // Critical error → แสดง toast + ปุ่ม reload + ไม่ mark dataLoaded (จะยัง spinner อยู่)
+      if (criticalErrors.length > 0) {
+        toast.error(
+          `❌ โหลดข้อมูลไม่ครบ:\n${criticalErrors.map((e) => `• ${e}`).join('\n')}\n\nกดปุ่ม "Reload" ใน sidebar เพื่อลองใหม่`,
+          { duration: 0 }, // sticky
+        );
+        // ยังคง set data ที่โหลดได้ (partial) เผื่อบางส่วนใช้ได้ — แต่ dataLoaded ยังไม่ true
+        // เพื่อบังคับให้ผู้ใช้เห็นว่าโหลดไม่สำเร็จ
+        return;
       }
 
       const _allProjects = (projectsRes.data || []).map(projectFromDb);
@@ -346,8 +372,16 @@ export const useStore = create<AppState>()((set, get) => ({
       });
     } catch (e) {
       console.error('[Supabase] loadAllData failed:', e);
-      set({ dataLoaded: true });
+      toast.error(`❌ โหลดข้อมูลล้มเหลว: ${(e as { message?: string })?.message || 'unknown'}\nกดปุ่ม "Reload" ใน sidebar`, { duration: 0 });
+      // ไม่ mark dataLoaded=true → user เห็น spinner + toast ที่บอกให้กด Reload
     }
+  },
+
+  // Manual re-fetch — reset dataLoaded + trigger loadAllData
+  // ใช้เวลาข้อมูลดูแปลก / โหลดไม่ครบ
+  reloadAllData: () => {
+    set({ dataLoaded: false });
+    return get().loadAllData();
   },
 
   resetStore: () => {
