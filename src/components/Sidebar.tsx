@@ -54,33 +54,70 @@ export default function Sidebar() {
     router.push('/');
   };
 
-  // Export JSON แบบครบ (fetch จาก Supabase ใหม่พร้อม slip payloads)
-  // เดิม dump จาก state → หลัง lazy-slip fix, state ไม่มี slip → backup incomplete
-  // ตอนนี้ fetch ทั้ง payments/distributions/pool_transactions พร้อม slip_urls จริง
+  // Export JSON แบบครบ — fetch เป็น chunks เล็กๆ เพื่อกัน Postgres statement_timeout
+  // เดิม select * ครั้งเดียว → base64 slip payload ใหญ่มาก timeout หลัง 8 วิ
+  // ตอนนี้: paginate ด้วย .range() ครั้งละ 20 rows → แต่ละ query ไม่ค้าง
+  const fetchAllPaginated = async (
+    table: string,
+    pageSize: number,
+    onProgress?: (loaded: number) => void,
+  ): Promise<Record<string, unknown>[]> => {
+    const all: Record<string, unknown>[] = [];
+    let from = 0;
+    // safety cap: 10,000 records max (ป้องกัน infinite loop ถ้ามี bug)
+    while (from < 10000) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) throw new Error(`${table} (offset ${from}): ${error.message}`);
+      if (!data || data.length === 0) break;
+      all.push(...(data as Record<string, unknown>[]));
+      onProgress?.(all.length);
+      if (data.length < pageSize) break; // last page
+      from += pageSize;
+    }
+    return all;
+  };
+
   const handleExport = async () => {
     setExporting(true);
-    const t = toast.info('กำลังเตรียม backup (โหลด slip อาจใช้เวลาสักครู่)...', { duration: 0 });
+    const t = toast.info('กำลังเตรียม backup — โหลด payments...', { duration: 0 });
     try {
-      // Fetch full data with slip payloads (select *) — จำเป็นเพื่อให้ backup ครบ
-      const [paymentsRes, distributionsRes, poolRes] = await Promise.all([
-        supabase.from('payments').select('*'),
-        supabase.from('distributions').select('*'),
-        supabase.from('pool_transactions').select('*'),
-      ]);
+      // ทำทีละ table (ไม่ parallel) เพื่อไม่ให้ Supabase overload
+      // chunk size 20 — เผื่อ slip PNG ก้อนใหญ่ (~500KB × 20 = 10MB ต่อ query, ปลอดภัยใต้ 8 วิ)
+      const payments = await fetchAllPaginated('payments', 20, (n) => {
+        toast.dismiss(t);
+        toast.info(`กำลังโหลด payments... (${n} รายการ)`, { duration: 0 });
+      });
+      toast.dismiss(t);
+      const t2 = toast.info(`payments เสร็จ ${payments.length} รายการ — กำลังโหลด distributions...`, { duration: 0 });
 
-      if (paymentsRes.error) throw new Error(`payments: ${paymentsRes.error.message}`);
-      if (distributionsRes.error) throw new Error(`distributions: ${distributionsRes.error.message}`);
-      // pool_transactions อาจยังไม่มี table (ก่อน migration) — ไม่ throw
-      const poolData = poolRes.error ? [] : (poolRes.data || []);
+      const distributions = await fetchAllPaginated('distributions', 20, (n) => {
+        toast.dismiss(t2);
+        toast.info(`กำลังโหลด distributions... (${n} รายการ)`, { duration: 0 });
+      });
+      toast.dismiss(t2);
+      const t3 = toast.info(`distributions เสร็จ ${distributions.length} รายการ — กำลังโหลด pool...`, { duration: 0 });
+
+      // pool_transactions — ตัดปัญหา table missing (แล้ว fallback เป็น array ว่าง)
+      let poolTransactions: Record<string, unknown>[] = [];
+      try {
+        poolTransactions = await fetchAllPaginated('pool_transactions', 20);
+      } catch (poolErr) {
+        console.warn('[export] pool_transactions unavailable:', poolErr);
+      }
+      toast.dismiss(t3);
 
       const data = {
-        version: 2, // bump — schema เปลี่ยน (มี poolTransactions)
+        version: 2,
         exportedAt: new Date().toISOString(),
         projects,
         quotations,
-        payments: paymentsRes.data || [],
-        distributions: distributionsRes.data || [],
-        poolTransactions: poolData,
+        payments,
+        distributions,
+        poolTransactions,
       };
       const jsonStr = JSON.stringify(data, null, 2);
       const sizeMB = (new Blob([jsonStr]).size / 1024 / 1024).toFixed(2);
@@ -91,11 +128,17 @@ export default function Sidebar() {
       a.download = `research-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.dismiss(t);
-      toast.success(`ดาวน์โหลด backup แล้ว (${sizeMB} MB)`);
+      toast.success(
+        `ดาวน์โหลด backup แล้ว (${sizeMB} MB) — ` +
+        `${payments.length} payments, ${distributions.length} distributions, ${poolTransactions.length} pool`,
+        { duration: 6000 },
+      );
     } catch (e) {
-      toast.dismiss(t);
-      toast.error(`Backup ล้มเหลว: ${(e as { message?: string })?.message || 'unknown'}\nถ้า timeout อาจเป็นเพราะ slip เยอะเกินไป — ลอง export บ่อยขึ้นเพื่อไม่ให้ค้างสะสม`, { duration: 10000 });
+      toast.error(
+        `Backup ล้มเหลว: ${(e as { message?: string })?.message || 'unknown'}\n` +
+        `ลองใหม่อีกครั้ง — ถ้ายัง timeout แจ้งได้ (ผมจะลด chunk size)`,
+        { duration: 10000 },
+      );
     } finally {
       setExporting(false);
     }
