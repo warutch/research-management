@@ -24,6 +24,8 @@ import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import { useAuth, signOut } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
+import { toast } from '@/components/Toast';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -40,8 +42,9 @@ export default function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { projects, quotations, payments, distributions, migrateFromLocalStorage, reloadAllData } = useStore();
+  const { projects, quotations, migrateFromLocalStorage, reloadAllData } = useStore();
   const [reloading, setReloading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const { user } = useAuth();
 
   const handleBrandClick = () => {
@@ -51,22 +54,51 @@ export default function Sidebar() {
     router.push('/');
   };
 
-  const handleExport = () => {
-    const data = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      projects,
-      quotations,
-      payments,
-      distributions,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `research-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Export JSON แบบครบ (fetch จาก Supabase ใหม่พร้อม slip payloads)
+  // เดิม dump จาก state → หลัง lazy-slip fix, state ไม่มี slip → backup incomplete
+  // ตอนนี้ fetch ทั้ง payments/distributions/pool_transactions พร้อม slip_urls จริง
+  const handleExport = async () => {
+    setExporting(true);
+    const t = toast.info('กำลังเตรียม backup (โหลด slip อาจใช้เวลาสักครู่)...', { duration: 0 });
+    try {
+      // Fetch full data with slip payloads (select *) — จำเป็นเพื่อให้ backup ครบ
+      const [paymentsRes, distributionsRes, poolRes] = await Promise.all([
+        supabase.from('payments').select('*'),
+        supabase.from('distributions').select('*'),
+        supabase.from('pool_transactions').select('*'),
+      ]);
+
+      if (paymentsRes.error) throw new Error(`payments: ${paymentsRes.error.message}`);
+      if (distributionsRes.error) throw new Error(`distributions: ${distributionsRes.error.message}`);
+      // pool_transactions อาจยังไม่มี table (ก่อน migration) — ไม่ throw
+      const poolData = poolRes.error ? [] : (poolRes.data || []);
+
+      const data = {
+        version: 2, // bump — schema เปลี่ยน (มี poolTransactions)
+        exportedAt: new Date().toISOString(),
+        projects,
+        quotations,
+        payments: paymentsRes.data || [],
+        distributions: distributionsRes.data || [],
+        poolTransactions: poolData,
+      };
+      const jsonStr = JSON.stringify(data, null, 2);
+      const sizeMB = (new Blob([jsonStr]).size / 1024 / 1024).toFixed(2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `research-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.dismiss(t);
+      toast.success(`ดาวน์โหลด backup แล้ว (${sizeMB} MB)`);
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(`Backup ล้มเหลว: ${(e as { message?: string })?.message || 'unknown'}\nถ้า timeout อาจเป็นเพราะ slip เยอะเกินไป — ลอง export บ่อยขึ้นเพื่อไม่ให้ค้างสะสม`, { duration: 10000 });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -191,8 +223,13 @@ export default function Sidebar() {
           >
             <RefreshCw size={15} className={reloading ? 'animate-spin' : ''} /> {reloading ? 'กำลังโหลด...' : 'Reload ข้อมูล'}
           </button>
-          <button onClick={handleExport} className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors w-full">
-            <Download size={15} /> Export JSON
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors w-full disabled:opacity-50"
+            title="Export JSON (รวม slip images) — อาจใช้เวลาสักครู่ถ้ามี slip เยอะ"
+          >
+            <Download size={15} /> {exporting ? 'กำลังเตรียม backup...' : 'Export JSON'}
           </button>
           <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors w-full">
             <Upload size={15} /> Import JSON

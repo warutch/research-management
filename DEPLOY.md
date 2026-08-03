@@ -16,6 +16,63 @@
 
 ---
 
+## 🧪 ขั้นที่ 0: Test on Local ก่อน Deploy (แนะนำให้ทำทุกครั้ง)
+
+ก่อน push ขึ้น production ควรรันบน local ก่อนเพื่อจับ bug ตั้งแต่เนิ่น ๆ — ประหยัดเวลากว่ารอ Vercel build ล้มเหลวแล้วค่อยมาแก้
+
+### Step 1 — แก้โค้ดใน dev folder
+
+```bash
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management
+# แก้ไฟล์ใน src/...
+```
+
+> ⚠️ อย่าแก้ใน `research-management-deploy/` หรือใน `.claude/worktrees/...` — rsync รอบหน้าจะทับทิ้ง
+
+### Step 2 — รัน dev server บน local
+
+```bash
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management
+npx next dev
+```
+
+เปิดเบราว์เซอร์ที่ http://localhost:3000
+
+> ✅ `.env.local` ใน dev folder มี Supabase URL/key อยู่แล้ว — เชื่อม DB ตัวเดียวกับ production
+> ⚠️ ระวัง: ทดสอบบน local **จะกระทบข้อมูลจริงใน Supabase production** ถ้าไม่อยากกระทบ ให้สร้างโครงการทดสอบแล้วลบทิ้งหลังเทส
+
+### Step 3 — Test feature ที่แก้
+
+- [ ] กดเข้าเมนูที่แก้ ลองใช้งาน feature ใหม่
+- [ ] เช็ค console บนเบราว์เซอร์ (DevTools → Console) ว่าไม่มี error
+- [ ] เช็ค Network tab ว่า request ไป Supabase สำเร็จ
+- [ ] ทดสอบ edge cases (กรอกข้อมูลผิด, ลบ, แก้ไข)
+
+### Step 4 — Build local เช็คว่า production build ผ่าน
+
+```bash
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management
+npx next build
+```
+
+ถ้า build ผ่าน → พร้อม deploy ถ้า build ล้มเหลว → แก้ก่อน (Vercel จะ build ล้มเหลวเหมือนกัน)
+
+### 💡 Tips สำหรับทดสอบ local
+
+1. **HMR (Hot Module Reload)** — แก้โค้ดแล้วเบราว์เซอร์ refresh เอง ไม่ต้องรีสตาร์ท `next dev`
+2. **เช็ค port ชน** — ถ้า port 3000 ถูกใช้แล้ว Next.js จะลอง 3001, 3002 ต่อ
+3. **Clear cache** — ถ้าเจอพฤติกรรมแปลก ลบ `.next/` แล้วรันใหม่:
+   ```bash
+   rm -rf .next && npx next dev
+   ```
+4. **ทดสอบบน production build local** (ใกล้เคียง Vercel ที่สุด):
+   ```bash
+   npx next build && npx next start
+   ```
+5. **Supabase tip** — ก่อนทดสอบ feature ที่เขียน DB เยอะ ๆ ลอง export JSON จาก sidebar เก็บ backup ไว้ก่อน
+
+---
+
 ## 🔄 ขั้นตอนการ Deploy
 
 ### ขั้นที่ 1: อัพเดท Database (ถ้าจำเป็น)
@@ -44,31 +101,15 @@
 
 Vercel ตั้ง **Auto Deploy** ไว้แล้ว — แค่ push code ก็พอ
 
-#### วิธีที่ 1: ทำงานใน folder เดียว (แนะนำ)
+> ⚠️ **Workflow ปัจจุบันใช้ 2 folders** — `research-management/` (dev) ↔ `research-management-deploy/` (มี git remote ของ Vercel)
+>
+> โฟลเดอร์ `research-management/.claude/worktrees/...` เป็น worktree ของ Claude Code **ห้ามแก้โค้ดในนั้น** เพราะไม่ได้ถูก sync ขึ้น deploy
 
-```bash
-cd /Users/warut.ch/Documents/WorkActive/Portfolio/research-management
-
-# 1. ดูว่ามีอะไรเปลี่ยนบ้าง
-git status
-
-# 2. Add ไฟล์ทั้งหมด
-git add .
-
-# 3. Commit พร้อม message ที่ชัดเจน
-git commit -m "feat: เพิ่ม Tracking Activities + multi-slip upload"
-
-# 4. Push
-git push
-```
-
-#### วิธีที่ 2: Sync จาก dev → deploy folder
-
-ถ้ายังแยก 2 folders:
+#### วิธีที่ 1: Sync จาก dev → deploy folder (workflow ปัจจุบัน)
 
 ```bash
 # 1. Sync จาก dev → deploy
-cd /Users/warut.ch/Documents/WorkActive/Portfolio
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio
 rsync -av --delete \
   --exclude='node_modules' \
   --exclude='.next' \
@@ -85,14 +126,40 @@ rsync -av \
 
 cp research-management/package.json research-management-deploy/
 cp research-management/package-lock.json research-management-deploy/
+cp research-management/next.config.ts research-management-deploy/      # ⬅️ เพิ่มบรรทัดนี้
 cp research-management/SETUP.md research-management-deploy/ 2>/dev/null || true
 
-# 2. Commit + push
+# 2. Verify ว่าการแก้อยู่ใน deploy แล้ว
+grep -n "calcRoundedShares\|Coordinator ดูดเศษ" research-management-deploy/src/types/index.ts
+
+# 3. Commit + push
 cd research-management-deploy
+git status
+git diff --stat   # ดู diff สรุป
 git add .
-git commit -m "อัพเดท: <ระบุฟีเจอร์ที่เปลี่ยน>"
+git commit -m "อัพเดท <auto fill ยอดเงิน>"
 git push
 ```
+
+
+
+
+> 💡 **เช็คก่อน rsync เสมอ** ว่าการแก้ของคุณอยู่ใน `research-management/src/` จริง — เพราะถ้าเผลอแก้ใน worktree หรือใน deploy โดยตรง rsync `--delete` จะทับทิ้ง
+
+#### วิธีที่ 2: ทำงานใน deploy folder ตรง ๆ (ข้าม dev)
+
+ถ้าแก้เล็กน้อยและไม่อยากใช้ workflow 2 folders:
+
+```bash
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management-deploy
+
+# แก้ code...
+git add .
+git commit -m "fix: แก้ layout ปุ่ม"
+git push
+```
+
+> ⚠️ ถ้าใช้วิธีนี้ อย่าลืม sync กลับเข้า dev folder ภายหลัง ไม่งั้นรอบหน้ารัน rsync จะทับทิ้ง
 
 ---
 
@@ -123,15 +190,19 @@ git push
 
 ## 🔥 Workflow แบบเร็ว (Daily Use)
 
-สำหรับการแก้ไขเล็กๆ น้อยๆ:
+สำหรับการแก้ไขเล็กๆ น้อยๆ — แก้ใน dev แล้ว sync ขึ้น deploy:
 
 ```bash
-cd /Users/warut.ch/Documents/WorkActive/Portfolio/research-management
+# 1. แก้ code ใน research-management/src/ ...
 
-# แก้ code...
-git add .
-git commit -m "fix: แก้ layout ปุ่ม"
-git push
+# 2. Sync + push (one-liner)
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio && \
+  rsync -av --delete \
+    --exclude='node_modules' --exclude='.next' \
+    --exclude='.env.local' --exclude='.git' --exclude='.DS_Store' \
+    research-management/src/ research-management-deploy/src/ && \
+  cd research-management-deploy && \
+  git add . && git commit -m "fix: แก้ layout ปุ่ม" && git push
 ```
 
 เสร็จ! Vercel จะ deploy ให้อัตโนมัติภายใน 1-2 นาที
@@ -214,14 +285,14 @@ git push
 
 | สิ่งที่ต้องทำ | คำสั่ง / ที่ทำ |
 |---|---|
-| Deploy code ใหม่ | `git add . && git commit -m "..." && git push` |
+| Deploy code ใหม่ | `rsync ... && cd .../research-management-deploy && git add . && git commit && git push` |
 | อัพเดท DB schema | Supabase → SQL Editor → รัน `supabase/schema.sql` |
 | เปลี่ยน env var | Vercel → Settings → Environment Variables |
 | ดู build logs | Vercel → Deployments → คลิก deployment |
 | Rollback | Vercel → Deployments → Promote to Production (version เก่า) |
 | ดูข้อมูล DB | Supabase → Table Editor |
-| Test local | `npx next dev` → http://localhost:3000 |
-| Build local | `npx next build` |
+| Test local | `cd research-management && npx next dev` → http://localhost:3000 |
+| Build local | `cd research-management && npx next build` |
 
 ---
 
@@ -235,3 +306,16 @@ git push
 ---
 
 ถ้าเจอปัญหา deploy ลองดู build logs ใน Vercel ก่อน หรือทดสอบ `npx next build` บน local — จะเห็น error ที่ตรงกันครับ ✨
+
+
+เปิด server
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management && npx next dev
+
+ปิด server
+กด Ctrl + C
+
+
+Username:admin@research.com
+Password:research1234
+
+

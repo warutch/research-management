@@ -303,89 +303,67 @@ export const useStore = create<AppState>()((set, get) => ({
   dataLoaded: false,
 
   loadAllData: async () => {
-    // ใช้ allSettled — ถ้า query ใดล้ม จะไม่ทำให้ทั้ง batch พังทิ้ง
-    // Critical tables (projects/payments/distributions) → ถ้าล้ม แสดง toast + ไม่ mark dataLoaded=true
-    // Non-critical (tracking/pool) → ล้มได้ (table อาจยังไม่สร้าง) เตือน + ยัง render ได้
-    try {
-      // ใช้ explicit column list (ไม่รวม slip_url + slip_urls) เพื่อลด payload
-      // has_slip เป็น generated column บอกว่ามี slip ไหม — slip payload lazy-load เมื่อกด view
-      // Fallback: ถ้า has_slip column ยังไม่มี (user ยังไม่ได้รัน migration) → retry โดยตัด has_slip ออก
-      const isHasSlipMissing = (err: unknown): boolean => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const e = err as any;
-        const msg = ((e?.message || '') + ' ' + (e?.details || '') + ' ' + (e?.hint || '')).toLowerCase();
-        return /has_slip/.test(msg) && /(does not exist|column)/.test(msg);
-      };
-      const fetchWithFallback = async (table: string, cols: string, order?: { col: string; asc: boolean }) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let q = supabase.from(table).select(cols) as any;
-        if (order) q = q.order(order.col, { ascending: order.asc });
-        let res = await q;
-        if (res.error && isHasSlipMissing(res.error)) {
-          // retry without has_slip
-          const fallbackCols = cols.split(',').filter((c) => c.trim() !== 'has_slip').join(',');
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let q2 = supabase.from(table).select(fallbackCols) as any;
-          if (order) q2 = q2.order(order.col, { ascending: order.asc });
-          res = await q2;
-        }
-        return res;
-      };
+    // Two-phase loading:
+    //   Phase 1 (critical) — projects+payments+distributions → mark dataLoaded=true ทันที
+    //                        หน้า /projects, /income, /payments พร้อม render
+    //   Phase 2 (background) — quotations+tracking+pool_transactions โหลดต่อไม่ block UI
+    //                          หน้า /quotations, /tracking, /pool ยังเห็น spinner เฉพาะที่จำเป็น
+    //
+    // เดิมใช้ Promise.all รวมทั้ง 6 tables → หน้าไหนก็ต้องรอ tables ที่ไม่เกี่ยวข้อง
+    // เช่น /projects ต้องรอ quotations (JSONB items ใหญ่) + pool + tracking โหลดเสร็จก่อน paint
 
-      const [projectsRes, paymentsRes, distributionsRes, quotationsRes, trackingRes, poolRes] = await Promise.all([
+    // ใช้ explicit column list (ไม่รวม slip_url + slip_urls) เพื่อลด payload
+    // has_slip เป็น generated column บอกว่ามี slip ไหม — slip payload lazy-load เมื่อกด view
+    // Fallback: ถ้า has_slip column ยังไม่มี (user ยังไม่ได้รัน migration) → retry โดยตัด has_slip ออก
+    const isHasSlipMissing = (err: unknown): boolean => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = err as any;
+      const msg = ((e?.message || '') + ' ' + (e?.details || '') + ' ' + (e?.hint || '')).toLowerCase();
+      return /has_slip/.test(msg) && /(does not exist|column)/.test(msg);
+    };
+    const fetchWithFallback = async (table: string, cols: string, order?: { col: string; asc: boolean }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let q = supabase.from(table).select(cols) as any;
+      if (order) q = q.order(order.col, { ascending: order.asc });
+      let res = await q;
+      if (res.error && isHasSlipMissing(res.error)) {
+        const fallbackCols = cols.split(',').filter((c) => c.trim() !== 'has_slip').join(',');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q2 = supabase.from(table).select(fallbackCols) as any;
+        if (order) q2 = q2.order(order.col, { ascending: order.asc });
+        res = await q2;
+      }
+      return res;
+    };
+
+    // ============ Phase 1: Critical tables ============
+    try {
+      const [projectsRes, paymentsRes, distributionsRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
         fetchWithFallback('payments', PAYMENT_LIST_COLUMNS),
         fetchWithFallback('distributions', DISTRIBUTION_LIST_COLUMNS),
-        supabase.from('quotations').select('*'),
-        supabase.from('tracking_activities').select('*'),
-        fetchWithFallback('pool_transactions', POOL_TX_LIST_COLUMNS, { col: 'date', asc: false }),
       ]);
 
       logErr('load projects', projectsRes.error);
       logErr('load payments', paymentsRes.error);
       logErr('load distributions', distributionsRes.error);
-      logErr('load quotations', quotationsRes.error);
-      logErr('load tracking', trackingRes.error);
-      logErr('load pool', poolRes.error);
 
-      // ตรวจ error แบบเจาะจงต่อ table
       const criticalErrors: string[] = [];
       if (projectsRes.error) criticalErrors.push(`projects: ${projectsRes.error.message || 'unknown'}`);
       if (paymentsRes.error) criticalErrors.push(`payments: ${paymentsRes.error.message || 'unknown'}`);
       if (distributionsRes.error) criticalErrors.push(`distributions: ${distributionsRes.error.message || 'unknown'}`);
-      if (quotationsRes.error) criticalErrors.push(`quotations: ${quotationsRes.error.message || 'unknown'}`);
 
-      // Non-critical: pool_transactions / tracking table missing → แสดง hint แต่โหลด page ต่อได้
-      if (poolRes.error && isTableMissingError(poolRes.error, 'pool_transactions')) {
-        toast.warning(
-          '⚠️ ยังไม่ได้สร้าง table "pool_transactions" ใน Supabase\n' +
-          'ไปที่ Supabase Dashboard → SQL Editor → รัน supabase/schema.sql',
-          { duration: 12000 },
-        );
-      } else if (poolRes.error) {
-        toast.error(`โหลด Pool money ไม่สำเร็จ: ${poolRes.error.message || 'unknown'}`);
-      }
-      if (trackingRes.error && !isTableMissingError(trackingRes.error, 'tracking_activities')) {
-        toast.error(`โหลด Tracking ไม่สำเร็จ: ${trackingRes.error.message || 'unknown'}`);
-      }
-
-      // Critical error → แสดง toast + ปุ่ม reload + ไม่ mark dataLoaded (จะยัง spinner อยู่)
       if (criticalErrors.length > 0) {
         toast.error(
           `❌ โหลดข้อมูลไม่ครบ:\n${criticalErrors.map((e) => `• ${e}`).join('\n')}\n\nกดปุ่ม "Reload" ใน sidebar เพื่อลองใหม่`,
-          { duration: 0 }, // sticky
+          { duration: 0 },
         );
-        // ยังคง set data ที่โหลดได้ (partial) เผื่อบางส่วนใช้ได้ — แต่ dataLoaded ยังไม่ true
-        // เพื่อบังคับให้ผู้ใช้เห็นว่าโหลดไม่สำเร็จ
-        return;
+        return; // ไม่ mark dataLoaded → user เห็น spinner + toast
       }
 
       const _allProjects = (projectsRes.data || []).map(projectFromDb);
       const _allPayments = (paymentsRes.data || []).map(paymentFromDb);
       const _allDistributions = (distributionsRes.data || []).map(distributionFromDb);
-      const _allQuotations = (quotationsRes.data || []).map(quotationFromDb);
-      const _allTrackingActivities = (trackingRes.data || []).map(trackingActivityFromDb);
-      const poolTransactions = (poolRes.data || []).map(poolTxFromDb);
 
       set((state) => {
         // ครั้งแรกที่โหลด — set yearFilter เป็นปีล่าสุดอัตโนมัติ (default)
@@ -395,24 +373,80 @@ export const useStore = create<AppState>()((set, get) => ({
           if (latest) yearFilter = latest;
         }
         return {
-          _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
-          poolTransactions,
+          _allProjects, _allPayments, _allDistributions,
+          // quotations/tracking ค้าง state เดิม (empty array ครั้งแรก) — Phase 2 จะเติมให้
           yearFilter,
           ...recomputeFiltered({
-            _allProjects, _allPayments, _allDistributions, _allQuotations, _allTrackingActivities,
+            _allProjects, _allPayments, _allDistributions,
+            _allQuotations: state._allQuotations,
+            _allTrackingActivities: state._allTrackingActivities,
             typeFilter: state.typeFilter,
             statusFilter: state.statusFilter,
             yearFilter,
             searchQuery: state.searchQuery,
           }),
-          dataLoaded: true,
+          dataLoaded: true, // ← unblock UI ตรงนี้ Phase 2 ยังไม่เสร็จก็ paint ได้
         };
       });
     } catch (e) {
-      console.error('[Supabase] loadAllData failed:', e);
+      console.error('[Supabase] loadAllData Phase 1 failed:', e);
       toast.error(`❌ โหลดข้อมูลล้มเหลว: ${(e as { message?: string })?.message || 'unknown'}\nกดปุ่ม "Reload" ใน sidebar`, { duration: 0 });
-      // ไม่ mark dataLoaded=true → user เห็น spinner + toast ที่บอกให้กด Reload
+      return;
     }
+
+    // ============ Phase 2: Background tables (fire-and-forget) ============
+    // ไม่ await — ให้ Phase 1 return ก่อน UI paint แล้วเติม data เหล่านี้พื้นหลัง
+    (async () => {
+      try {
+        const [quotationsRes, trackingRes, poolRes] = await Promise.all([
+          supabase.from('quotations').select('*'),
+          supabase.from('tracking_activities').select('*'),
+          fetchWithFallback('pool_transactions', POOL_TX_LIST_COLUMNS, { col: 'date', asc: false }),
+        ]);
+
+        logErr('load quotations', quotationsRes.error);
+        logErr('load tracking', trackingRes.error);
+        logErr('load pool', poolRes.error);
+
+        // quotations error → เตือน แต่ไม่ block
+        if (quotationsRes.error && !isTableMissingError(quotationsRes.error, 'quotations')) {
+          toast.error(`โหลด Quotations ไม่สำเร็จ: ${quotationsRes.error.message || 'unknown'}`);
+        }
+        if (poolRes.error && isTableMissingError(poolRes.error, 'pool_transactions')) {
+          toast.warning(
+            '⚠️ ยังไม่ได้สร้าง table "pool_transactions" ใน Supabase\n' +
+            'ไปที่ Supabase Dashboard → SQL Editor → รัน supabase/schema.sql',
+            { duration: 12000 },
+          );
+        } else if (poolRes.error) {
+          toast.error(`โหลด Pool money ไม่สำเร็จ: ${poolRes.error.message || 'unknown'}`);
+        }
+        if (trackingRes.error && !isTableMissingError(trackingRes.error, 'tracking_activities')) {
+          toast.error(`โหลด Tracking ไม่สำเร็จ: ${trackingRes.error.message || 'unknown'}`);
+        }
+
+        const _allQuotations = (quotationsRes.data || []).map(quotationFromDb);
+        const _allTrackingActivities = (trackingRes.data || []).map(trackingActivityFromDb);
+        const poolTransactions = (poolRes.data || []).map(poolTxFromDb);
+
+        set((state) => ({
+          _allQuotations, _allTrackingActivities, poolTransactions,
+          ...recomputeFiltered({
+            _allProjects: state._allProjects,
+            _allPayments: state._allPayments,
+            _allDistributions: state._allDistributions,
+            _allQuotations, _allTrackingActivities,
+            typeFilter: state.typeFilter,
+            statusFilter: state.statusFilter,
+            yearFilter: state.yearFilter,
+            searchQuery: state.searchQuery,
+          }),
+        }));
+      } catch (e) {
+        console.error('[Supabase] loadAllData Phase 2 failed:', e);
+        toast.error(`โหลดข้อมูลเสริม (quotations/pool/tracking) ล้มเหลว: ${(e as { message?: string })?.message || 'unknown'}`);
+      }
+    })();
   },
 
   // Manual re-fetch — reset dataLoaded + trigger loadAllData

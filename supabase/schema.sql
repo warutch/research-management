@@ -204,5 +204,35 @@ alter table pool_transactions add column if not exists has_slip boolean
   ) stored;
 
 -- ================================================================
+-- 6. Performance indexes
+-- เดิมไม่มี index บน foreign key columns → Postgres seq-scan ทุกครั้งที่ query
+-- ผลลัพธ์: หน้า projects/payments ช้าลงมากเมื่อ data โต
+-- ================================================================
+-- Payments — join กับ projects/installments เป็นหลัก
+create index if not exists idx_payments_project_id on payments(project_id);
+create index if not exists idx_payments_installment_id on payments(installment_id);
+create index if not exists idx_payments_paid_date on payments(paid_date desc);
+
+-- Distributions — join กับ projects, filter ตาม recipient
+create index if not exists idx_distributions_project_id on distributions(project_id);
+create index if not exists idx_distributions_recipient_id on distributions(recipient_id);
+create index if not exists idx_distributions_paid_date on distributions(paid_date desc);
+
+-- Projects — sort ตาม created_at desc เป็น default
+create index if not exists idx_projects_created_at on projects(created_at desc);
+create index if not exists idx_projects_status on projects(status);
+
+-- Quotations — sort ตาม date
+create index if not exists idx_quotations_date on quotations(date desc);
+
+-- Pool transactions — sort ตาม date
+create index if not exists idx_pool_transactions_date on pool_transactions(date desc);
+create index if not exists idx_pool_transactions_type on pool_transactions(type);
+
+-- Tracking activities — filter/sort ตาม start_date / deadline
+create index if not exists idx_tracking_activities_start_date on tracking_activities(start_date desc);
+create index if not exists idx_tracking_activities_deadline on tracking_activities(deadline desc);
+
+-- ================================================================
 -- เสร็จแล้ว! ไปสร้าง user accounts ที่ Authentication → Users
 -- ================================================================
