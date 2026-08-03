@@ -180,5 +180,29 @@ create index if not exists idx_tracking_activities_workspace on tracking_activit
 alter table projects add column if not exists commission numeric not null default 0;
 
 -- ================================================================
+-- 5. Migration: has_slip generated column
+-- แก้ปัญหา "statement timeout" — เดิม select * ต้องดึง slip_urls (base64 images MB-scale)
+-- has_slip เป็น boolean คำนวณอัตโนมัติจาก slip_url/slip_urls → cheap to load
+-- App จะ SELECT ทุก column ยกเว้น slip_url+slip_urls (ใช้ has_slip เช็คว่ามี slip ไหม)
+-- เมื่อผู้ใช้กด "ดู slip" → fetch เฉพาะ record นั้นทีหลัง
+-- ================================================================
+alter table payments add column if not exists has_slip boolean
+  generated always as (
+    (coalesce(slip_url, '') != '')
+    or (coalesce(jsonb_array_length(slip_urls), 0) > 0)
+  ) stored;
+
+alter table distributions add column if not exists has_slip boolean
+  generated always as (
+    (coalesce(slip_url, '') != '')
+    or (coalesce(jsonb_array_length(slip_urls), 0) > 0)
+  ) stored;
+
+alter table pool_transactions add column if not exists has_slip boolean
+  generated always as (
+    (coalesce(jsonb_array_length(slip_urls), 0) > 0)
+  ) stored;
+
+-- ================================================================
 -- เสร็จแล้ว! ไปสร้าง user accounts ที่ Authentication → Users
 -- ================================================================

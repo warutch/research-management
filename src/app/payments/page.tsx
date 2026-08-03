@@ -5,13 +5,36 @@ import { useStore } from '@/store/useStore';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Banknote, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
-import { getSlips } from '@/types';
+import { getSlips, recordHasSlip } from '@/types';
+import { toast } from '@/components/Toast';
 
 export default function PaymentsPage() {
   const hydrated = useHydrated();
-  const { payments, projects } = useStore();
+  const { payments, projects, fetchSlipsFor } = useStore();
   const [viewSlips, setViewSlips] = useState<string[] | null>(null);
   const [viewSlipIndex, setViewSlipIndex] = useState(0);
+  const [loadingSlipId, setLoadingSlipId] = useState<string | null>(null);
+
+  const handleViewSlip = async (paymentId: string, currentSlips: string[]) => {
+    if (currentSlips.length > 0) {
+      setViewSlips(currentSlips);
+      setViewSlipIndex(0);
+      return;
+    }
+    // Lazy-fetch from Supabase
+    setLoadingSlipId(paymentId);
+    try {
+      const slips = await fetchSlipsFor('payment', paymentId);
+      if (slips.length === 0) {
+        toast.info('ไม่มี slip แนบไว้');
+      } else {
+        setViewSlips(slips);
+        setViewSlipIndex(0);
+      }
+    } finally {
+      setLoadingSlipId(null);
+    }
+  };
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">กำลังโหลด...</div>;
 
@@ -69,19 +92,20 @@ export default function PaymentsPage() {
                       <td className="px-5 py-3 text-right font-bold text-green-600">{formatCurrency(payment.amount)}</td>
                       <td className="px-5 py-3 text-center">
                         {(() => {
+                          if (!recordHasSlip(payment)) return <span className="text-gray-300">-</span>;
                           const slips = getSlips(payment);
-                          return slips.length > 0 ? (
+                          const isLoading = loadingSlipId === payment.id;
+                          return (
                             <button
-                              onClick={() => { setViewSlips(slips); setViewSlipIndex(0); }}
-                              className="relative inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                              onClick={() => handleViewSlip(payment.id, slips)}
+                              disabled={isLoading}
+                              className="relative inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50"
                             >
-                              <Image size={14} /> ดู
+                              <Image size={14} /> {isLoading ? 'กำลังโหลด...' : 'ดู'}
                               {slips.length > 1 && (
                                 <span className="bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold ml-0.5">{slips.length}</span>
                               )}
                             </button>
-                          ) : (
-                            <span className="text-gray-300">-</span>
                           );
                         })()}
                       </td>

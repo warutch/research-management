@@ -124,18 +124,25 @@ export function paymentToDb(p: PaymentRecord): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function paymentFromDb(row: any): PaymentRecord {
+  // ถ้า row มี slip_urls → ใช้ (record ถูก fetch เต็ม), ถ้าไม่มี → undefined (ยัง lazy-load)
+  const hasSlipCol = 'slip_urls' in row || 'slip_url' in row;
   return {
     id: row.id,
     projectId: row.project_id,
     installmentId: row.installment_id || '',
     amount: Number(row.amount) || 0,
     paidDate: row.paid_date || '',
-    slipUrl: row.slip_url || '',
-    slipUrls: row.slip_urls || [],
+    slipUrl: row.slip_url ?? '',
+    slipUrls: hasSlipCol ? (row.slip_urls || []) : undefined,
+    hasSlip: typeof row.has_slip === 'boolean' ? row.has_slip : undefined,
     note: row.note || '',
     createdAt: row.created_at || new Date().toISOString(),
   };
 }
+
+// Column list สำหรับ initial load — ไม่รวม slip_url/slip_urls (base64 payload หนักมาก)
+// ใช้ has_slip (generated column) เช็คว่ามี slip ไหม
+export const PAYMENT_LIST_COLUMNS = 'id,project_id,installment_id,amount,paid_date,note,created_at,has_slip';
 
 // --- Distribution ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,18 +162,22 @@ export function distributionToDb(d: DistributionRecord): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function distributionFromDb(row: any): DistributionRecord {
+  const hasSlipCol = 'slip_urls' in row || 'slip_url' in row;
   return {
     id: row.id,
     projectId: row.project_id,
     recipientId: row.recipient_id,
     amount: Number(row.amount) || 0,
     paidDate: row.paid_date || '',
-    slipUrl: row.slip_url || '',
-    slipUrls: row.slip_urls || [],
+    slipUrl: row.slip_url ?? '',
+    slipUrls: hasSlipCol ? (row.slip_urls || []) : undefined,
+    hasSlip: typeof row.has_slip === 'boolean' ? row.has_slip : undefined,
     note: row.note || '',
     createdAt: row.created_at || new Date().toISOString(),
   };
 }
+
+export const DISTRIBUTION_LIST_COLUMNS = 'id,project_id,recipient_id,amount,paid_date,note,created_at,has_slip';
 
 // --- Quotation ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -258,6 +269,7 @@ export function poolTxToDb(t: PoolTransaction): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function poolTxFromDb(row: any): PoolTransaction {
+  const hasSlipCol = 'slip_urls' in row;
   return {
     id: row.id,
     type: row.type as PoolTxType,
@@ -268,7 +280,10 @@ export function poolTxFromDb(row: any): PoolTransaction {
     recipientMemberId: row.recipient_member_id ? (row.recipient_member_id as MemberId) : undefined,
     recipientName: row.recipient_name || '',
     description: row.description || '',
-    slipUrls: row.slip_urls || [],
+    slipUrls: hasSlipCol ? (row.slip_urls || []) : undefined,
+    hasSlip: typeof row.has_slip === 'boolean' ? row.has_slip : undefined,
     createdAt: row.created_at || new Date().toISOString(),
   };
 }
+
+export const POOL_TX_LIST_COLUMNS = 'id,type,amount,date,source,category,recipient_member_id,recipient_name,description,created_at,has_slip';

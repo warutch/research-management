@@ -7,7 +7,7 @@ import {
   MEMBERS, MemberId, PoolTransaction, PoolTxType, DistributionRecord, Project,
   POOL_TX_LABELS, POOL_TX_ICONS,
   getPoolTxDirection, getPoolTxSignedAmount,
-  calcPoolBalance, getSlips,
+  calcPoolBalance, getSlips, recordHasSlip,
 } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -59,12 +59,33 @@ export default function PoolPage() {
     _allDistributions,
     _allProjects,
     addPoolTransaction, updatePoolTransaction, deletePoolTransaction,
+    fetchSlipsFor,
   } = useStore();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TxFormState>(emptyForm());
   const [viewSlipUrl, setViewSlipUrl] = useState<string | null>(null);
+  const [loadingSlipId, setLoadingSlipId] = useState<string | null>(null);
+
+  // Lazy-fetch + view slip helper สำหรับทั้ง pool_tx และ distribution
+  const handleViewFirstSlip = async (kind: 'pool_tx' | 'distribution', recordId: string, currentSlips: string[]) => {
+    if (currentSlips.length > 0) {
+      setViewSlipUrl(currentSlips[0]);
+      return;
+    }
+    setLoadingSlipId(recordId);
+    try {
+      const slips = await fetchSlipsFor(kind, recordId);
+      if (slips.length === 0) {
+        toast.info('ไม่มี slip แนบไว้');
+      } else {
+        setViewSlipUrl(slips[0]);
+      }
+    } finally {
+      setLoadingSlipId(null);
+    }
+  };
 
   // Filters
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
@@ -369,8 +390,13 @@ export default function PoolPage() {
                         <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">{formatCurrency(balanceAfter)}</td>
                         <td className="px-4 py-2.5 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {slips.length > 0 && (
-                              <button onClick={() => setViewSlipUrl(slips[0])} className="p-1 text-gray-400 hover:text-indigo-600" title="ดู Slip">
+                            {recordHasSlip(dist) && (
+                              <button
+                                onClick={() => handleViewFirstSlip('distribution', dist.id, slips)}
+                                disabled={loadingSlipId === dist.id}
+                                className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+                                title={loadingSlipId === dist.id ? 'กำลังโหลด...' : 'ดู Slip'}
+                              >
                                 <ImageIcon size={13} />
                               </button>
                             )}
@@ -419,8 +445,13 @@ export default function PoolPage() {
                       <td className="px-4 py-2.5 text-right text-gray-700 tabular-nums whitespace-nowrap">{formatCurrency(balanceAfter)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {slips.length > 0 && (
-                            <button onClick={() => setViewSlipUrl(slips[0])} className="p-1 text-gray-400 hover:text-indigo-600" title="ดู Slip">
+                          {recordHasSlip(tx) && (
+                            <button
+                              onClick={() => handleViewFirstSlip('pool_tx', tx.id, slips)}
+                              disabled={loadingSlipId === tx.id}
+                              className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+                              title={loadingSlipId === tx.id ? 'กำลังโหลด...' : 'ดู Slip'}
+                            >
                               <ImageIcon size={13} />
                             </button>
                           )}

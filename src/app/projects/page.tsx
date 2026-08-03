@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta } from '@/types';
 import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
@@ -73,7 +73,29 @@ export default function ProjectsPage() {
     addInstallment, updateInstallment, deleteInstallment,
     payments, addPayment, updatePayment, deletePayment,
     distributions, addDistribution, deleteDistribution,
+    fetchSlipsFor,
   } = useStore();
+  const [loadingSlipId, setLoadingSlipId] = useState<string | null>(null);
+
+  const handleViewSlipRecord = async (kind: 'payment' | 'distribution', recordId: string, currentSlips: string[]) => {
+    if (currentSlips.length > 0) {
+      setViewSlips(currentSlips);
+      setViewSlipIndex(0);
+      return;
+    }
+    setLoadingSlipId(recordId);
+    try {
+      const slips = await fetchSlipsFor(kind, recordId);
+      if (slips.length === 0) {
+        toast.info('ไม่มี slip แนบไว้');
+      } else {
+        setViewSlips(slips);
+        setViewSlipIndex(0);
+      }
+    } finally {
+      setLoadingSlipId(null);
+    }
+  };
 
   const sortedProjects = useMemo(
     () => [...projects].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -979,10 +1001,16 @@ export default function ProjectsPage() {
                                       <div className="text-right">
                                         <p className="text-sm font-bold text-green-600">{formatCurrency(payment.amount)}</p>
                                       </div>
-                                      {(() => {
+                                      {recordHasSlip(payment) && (() => {
                                         const slips = getSlips(payment);
-                                        return slips.length > 0 && (
-                                          <button onClick={() => { setViewSlips(slips); setViewSlipIndex(0); }} className="relative p-1 text-gray-400 hover:text-indigo-600" title={`ดู Slip (${slips.length} รูป)`}>
+                                        const isLoading = loadingSlipId === payment.id;
+                                        return (
+                                          <button
+                                            onClick={() => handleViewSlipRecord('payment', payment.id, slips)}
+                                            disabled={isLoading}
+                                            className="relative p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+                                            title={isLoading ? 'กำลังโหลด slip...' : `ดู Slip${slips.length > 0 ? ` (${slips.length} รูป)` : ''}`}
+                                          >
                                             <Image size={16} />
                                             {slips.length > 1 && (
                                               <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{slips.length}</span>
@@ -1413,10 +1441,16 @@ export default function ProjectsPage() {
                                             </div>
                                             <div className="flex items-center gap-3">
                                               <p className="text-sm font-bold text-green-600">{formatCurrency(dist.amount)}</p>
-                                              {(() => {
+                                              {recordHasSlip(dist) && (() => {
                                                 const slips = getSlips(dist);
-                                                return slips.length > 0 && (
-                                                  <button onClick={() => { setViewSlips(slips); setViewSlipIndex(0); }} className="relative p-1 text-gray-400 hover:text-indigo-600" title={`ดู Slip (${slips.length} รูป)`}>
+                                                const isLoading = loadingSlipId === dist.id;
+                                                return (
+                                                  <button
+                                                    onClick={() => handleViewSlipRecord('distribution', dist.id, slips)}
+                                                    disabled={isLoading}
+                                                    className="relative p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+                                                    title={isLoading ? 'กำลังโหลด slip...' : `ดู Slip${slips.length > 0 ? ` (${slips.length} รูป)` : ''}`}
+                                                  >
                                                     <Image size={16} />
                                                     {slips.length > 1 && (
                                                       <span className="absolute -top-1 -right-1 bg-green-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{slips.length}</span>

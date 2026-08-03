@@ -23,6 +23,7 @@ import {
   quotationToDb, quotationFromDb,
   trackingActivityToDb, trackingActivityFromDb,
   poolTxToDb, poolTxFromDb,
+  PAYMENT_LIST_COLUMNS, DISTRIBUTION_LIST_COLUMNS, POOL_TX_LIST_COLUMNS,
   markWorkspaceColumnMissing, isWorkspaceMissingError,
   markCommissionColumnMissing, isCommissionMissingError,
   isTableMissingError,
@@ -66,6 +67,9 @@ interface AppState {
 
   loadAllData: () => Promise<void>;
   reloadAllData: () => Promise<void>; // force re-fetch (ใช้เวลาข้อมูลไม่ครบ)
+  // Lazy-fetch slip payload สำหรับ record ที่ยังไม่ได้โหลด slip
+  // return array ของ slip URLs (base64) หรือ [] ถ้าไม่มี
+  fetchSlipsFor: (kind: 'payment' | 'distribution' | 'pool_tx', id: string) => Promise<string[]>;
   resetStore: () => void;
 
   // Projects
@@ -216,32 +220,41 @@ function recomputeFiltered(state: FilterableState) {
   };
 }
 
-// Logger
+// Logger — รวมทุก detail ไว้ในบรรทัดเดียวเพื่อให้ Next.js dev overlay แสดงได้ครบ
+// (overlay จะเห็นเฉพาะ arguments ของ console.error ครั้งแรก, ครั้งต่อไปเห็นเฉพาะใน browser DevTools console)
 function logErr(action: string, error: unknown) {
   if (!error) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = error as any;
   const errorInfo: Record<string, unknown> = {};
+  const collect = (key: string) => {
+    if (e?.[key] != null && !(key in errorInfo)) errorInfo[key] = e[key];
+  };
   if (e instanceof Error) {
     errorInfo.name = e.name;
     errorInfo.message = e.message;
     errorInfo.stack = e.stack;
   }
-  if (e?.message) errorInfo.message = e.message;
-  if (e?.code) errorInfo.code = e.code;
-  if (e?.details) errorInfo.details = e.details;
-  if (e?.hint) errorInfo.hint = e.hint;
-  if (e?.status) errorInfo.status = e.status;
-  if (e?.statusText) errorInfo.statusText = e.statusText;
+  ['message', 'code', 'details', 'hint', 'status', 'statusText', 'name'].forEach(collect);
+  // เก็บ properties อื่นๆ (รวม non-enumerable ผ่าน getOwnPropertyNames + for..in สำหรับ inherited/getters)
   try {
-    const keys = Object.getOwnPropertyNames(e);
-    keys.forEach((k) => { if (!(k in errorInfo)) errorInfo[k] = e[k]; });
+    const seen = new Set(Object.keys(errorInfo));
+    Object.getOwnPropertyNames(e).forEach((k) => {
+      if (!seen.has(k) && typeof e[k] !== 'function') { errorInfo[k] = e[k]; seen.add(k); }
+    });
+    for (const k in e) {
+      if (!seen.has(k) && typeof e[k] !== 'function') { errorInfo[k] = e[k]; seen.add(k); }
+    }
   } catch {}
-  console.error(`[Supabase] ${action} error:`);
-  console.error('  Type:', typeof e, e?.constructor?.name);
-  console.error('  Info:', errorInfo);
-  console.error('  Raw:', e);
-  console.error('  JSON:', JSON.stringify(e, Object.getOwnPropertyNames(e || {})));
+
+  // สรุปข้อมูลเป็น string สั้นๆ สำหรับ overlay
+  const isEmpty = Object.keys(errorInfo).length === 0 || (Object.keys(errorInfo).length === 1 && !errorInfo.message);
+  const summary = isEmpty
+    ? '(empty error — likely RLS blocked / session expired / network abort / CORS. Check DevTools → Network tab สำหรับ HTTP response จริง)'
+    : (errorInfo.message || errorInfo.code || errorInfo.details || JSON.stringify(errorInfo));
+
+  // First console.error: ใส่ทุกอย่างในบรรทัดเดียว (Next.js overlay จะเห็น)
+  console.error(`[Supabase] ${action} error:`, summary, { info: errorInfo, raw: e, type: `${typeof e}/${e?.constructor?.name || '?'}` });
 }
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -294,13 +307,38 @@ export const useStore = create<AppState>()((set, get) => ({
     // Critical tables (projects/payments/distributions) → ถ้าล้ม แสดง toast + ไม่ mark dataLoaded=true
     // Non-critical (tracking/pool) → ล้มได้ (table อาจยังไม่สร้าง) เตือน + ยัง render ได้
     try {
+      // ใช้ explicit column list (ไม่รวม slip_url + slip_urls) เพื่อลด payload
+      // has_slip เป็น generated column บอกว่ามี slip ไหม — slip payload lazy-load เมื่อกด view
+      // Fallback: ถ้า has_slip column ยังไม่มี (user ยังไม่ได้รัน migration) → retry โดยตัด has_slip ออก
+      const isHasSlipMissing = (err: unknown): boolean => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const e = err as any;
+        const msg = ((e?.message || '') + ' ' + (e?.details || '') + ' ' + (e?.hint || '')).toLowerCase();
+        return /has_slip/.test(msg) && /(does not exist|column)/.test(msg);
+      };
+      const fetchWithFallback = async (table: string, cols: string, order?: { col: string; asc: boolean }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q = supabase.from(table).select(cols) as any;
+        if (order) q = q.order(order.col, { ascending: order.asc });
+        let res = await q;
+        if (res.error && isHasSlipMissing(res.error)) {
+          // retry without has_slip
+          const fallbackCols = cols.split(',').filter((c) => c.trim() !== 'has_slip').join(',');
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let q2 = supabase.from(table).select(fallbackCols) as any;
+          if (order) q2 = q2.order(order.col, { ascending: order.asc });
+          res = await q2;
+        }
+        return res;
+      };
+
       const [projectsRes, paymentsRes, distributionsRes, quotationsRes, trackingRes, poolRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
-        supabase.from('payments').select('*'),
-        supabase.from('distributions').select('*'),
+        fetchWithFallback('payments', PAYMENT_LIST_COLUMNS),
+        fetchWithFallback('distributions', DISTRIBUTION_LIST_COLUMNS),
         supabase.from('quotations').select('*'),
         supabase.from('tracking_activities').select('*'),
-        supabase.from('pool_transactions').select('*').order('date', { ascending: false }),
+        fetchWithFallback('pool_transactions', POOL_TX_LIST_COLUMNS, { col: 'date', asc: false }),
       ]);
 
       logErr('load projects', projectsRes.error);
@@ -382,6 +420,53 @@ export const useStore = create<AppState>()((set, get) => ({
   reloadAllData: () => {
     set({ dataLoaded: false });
     return get().loadAllData();
+  },
+
+  // Lazy-load slip payload สำหรับ record เดียว
+  // → fetch จาก Supabase → update state → return array ของ slip URLs
+  fetchSlipsFor: async (kind, id) => {
+    const table = kind === 'payment' ? 'payments' : kind === 'distribution' ? 'distributions' : 'pool_transactions';
+    const cols = kind === 'pool_tx' ? 'id,slip_urls' : 'id,slip_url,slip_urls';
+    const { data, error } = await supabase.from(table).select(cols).eq('id', id).maybeSingle();
+    if (error) {
+      logErr(`fetchSlipsFor(${kind}/${id})`, error);
+      toast.error(`โหลด slip ไม่สำเร็จ: ${(error as { message?: string })?.message || 'unknown'}`);
+      return [];
+    }
+    if (!data) return [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row = data as any;
+    const slipUrls: string[] = Array.isArray(row.slip_urls) ? row.slip_urls : [];
+    const slipUrl: string = row.slip_url || '';
+    const combined = slipUrls.length > 0 ? slipUrls : (slipUrl ? [slipUrl] : []);
+
+    // Merge เข้า state → subsequent access ไม่ต้อง fetch ซ้ำ
+    if (kind === 'payment') {
+      set((state) => ({
+        _allPayments: state._allPayments.map((p) =>
+          p.id === id ? { ...p, slipUrl, slipUrls } : p
+        ),
+        payments: state.payments.map((p) =>
+          p.id === id ? { ...p, slipUrl, slipUrls } : p
+        ),
+      }));
+    } else if (kind === 'distribution') {
+      set((state) => ({
+        _allDistributions: state._allDistributions.map((d) =>
+          d.id === id ? { ...d, slipUrl, slipUrls } : d
+        ),
+        distributions: state.distributions.map((d) =>
+          d.id === id ? { ...d, slipUrl, slipUrls } : d
+        ),
+      }));
+    } else {
+      set((state) => ({
+        poolTransactions: state.poolTransactions.map((t) =>
+          t.id === id ? { ...t, slipUrls } : t
+        ),
+      }));
+    }
+    return combined;
   },
 
   resetStore: () => {

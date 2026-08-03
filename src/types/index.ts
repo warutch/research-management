@@ -352,7 +352,8 @@ export interface PaymentRecord {
   amount: number;
   paidDate: string;
   slipUrl: string; // backwards compat: slip แรก (deprecated)
-  slipUrls?: string[]; // base64 data URLs ของ slip ทั้งหมด
+  slipUrls?: string[]; // base64 data URLs — undefined = ยังไม่ได้ lazy-load
+  hasSlip?: boolean; // generated column ใน DB — ใช้แสดง icon โดยไม่ต้องโหลด slip
   note: string;
   createdAt: string;
 }
@@ -366,7 +367,8 @@ export interface DistributionRecord {
   amount: number;
   paidDate: string;
   slipUrl: string; // backwards compat (deprecated)
-  slipUrls?: string[]; // base64 data URLs ของ slip ทั้งหมด
+  slipUrls?: string[]; // base64 data URLs — undefined = ยังไม่ได้ lazy-load
+  hasSlip?: boolean; // generated column ใน DB — ใช้แสดง icon โดยไม่ต้องโหลด slip
   note: string;
   createdAt: string;
 }
@@ -419,11 +421,18 @@ export const TRACKING_STATUS_DOTS: Record<TrackingStatus, string> = {
 };
 
 // Helper: รวม slipUrl เก่า + slipUrls ใหม่ → array
+// ถ้า slipUrls === undefined = ยังไม่ได้ lazy-load → ต้องเรียก fetchSlipsFor() ก่อน
 export function getSlips(record: { slipUrl?: string; slipUrls?: string[] }): string[] {
   const arr: string[] = [];
   if (record.slipUrls && record.slipUrls.length > 0) arr.push(...record.slipUrls);
   else if (record.slipUrl) arr.push(record.slipUrl);
   return arr.filter(Boolean);
+}
+
+// เช็คว่า record มี slip แนบไหม — ใช้ hasSlip (generated column) ก่อน, fallback เป็นการเช็ค slipUrls ที่โหลดมา
+export function recordHasSlip(record: { slipUrl?: string; slipUrls?: string[]; hasSlip?: boolean }): boolean {
+  if (record.hasSlip !== undefined) return record.hasSlip;
+  return getSlips(record).length > 0;
 }
 
 // ============ Pool money (เงินกองกลาง) ============
@@ -476,7 +485,8 @@ export interface PoolTransaction {
   recipientMemberId?: MemberId; // สำหรับ to_member
   recipientName?: string;       // สำหรับ to_other (ชื่อคนรับ)
   description: string;          // รายละเอียด
-  slipUrls?: string[];          // base64 slip images
+  slipUrls?: string[];          // base64 slip images — undefined = ยังไม่ lazy-load
+  hasSlip?: boolean;            // generated column
   createdAt: string;
 }
 
