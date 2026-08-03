@@ -1,0 +1,34 @@
+name: Supabase Keep-Alive
+
+# Ping Supabase ทุก 3 วัน เพื่อกัน auto-pause (Free tier pause หลัง 7 วัน inactivity)
+# Manual trigger ได้ผ่าน "Actions" tab
+
+on:
+  schedule:
+    # UTC time: ทุกวันจันทร์-พุธ-ศุกร์ เวลา 08:00 UTC (= 15:00 น. ประเทศไทย)
+    - cron: '0 8 * * 1,3,5'
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          echo "Pinging $SUPABASE_URL ..."
+          # Query อะไรก็ได้ที่ทำให้ Supabase นับเป็น activity
+          RESPONSE=$(curl -sS -w "\nHTTP_CODE:%{http_code}\n" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/projects?select=id&limit=1")
+          echo "$RESPONSE"
+          # Fail ถ้า HTTP ไม่ใช่ 200
+          if echo "$RESPONSE" | grep -q "HTTP_CODE:200"; then
+            echo "✅ Keep-alive successful"
+          else
+            echo "❌ Keep-alive failed"
+            exit 1
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
