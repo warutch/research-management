@@ -12,6 +12,7 @@ interface Props {
   onClose: () => void;
   onSave: (activity: Omit<TrackingActivity, 'id' | 'createdAt'>) => void;
   onDelete?: (id: string) => void;
+  canEdit?: boolean;
 }
 
 const emptyForm = (defaultDate?: Date | null): Omit<TrackingActivity, 'id' | 'createdAt'> => {
@@ -31,7 +32,7 @@ const emptyForm = (defaultDate?: Date | null): Omit<TrackingActivity, 'id' | 'cr
   };
 };
 
-export default function TrackingActivityModal({ open, editingActivity, projects, defaultDate, onClose, onSave, onDelete }: Props) {
+export default function TrackingActivityModal({ open, editingActivity, projects, defaultDate, onClose, onSave, onDelete, canEdit = true }: Props) {
   const [form, setForm] = useState(emptyForm(defaultDate));
 
   useEffect(() => {
@@ -102,18 +103,20 @@ export default function TrackingActivityModal({ open, editingActivity, projects,
 
         {/* Action bar ข้างบน — กดง่ายบน mobile */}
         <div className="flex items-center gap-2 p-3 border-b border-gray-100 bg-gray-50/80">
-          {editingActivity && onDelete ? (
+          {canEdit && editingActivity && onDelete ? (
             <button onClick={handleDelete} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-100">
               <Trash2 size={15} /> ลบ
             </button>
           ) : null}
           <div className="flex-1" />
           <button onClick={onClose} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 rounded-lg hover:bg-white border border-gray-200">
-            ยกเลิก
+            {(!editingActivity || canEdit) ? 'ยกเลิก' : 'ปิด'}
           </button>
+          {(!editingActivity || canEdit) && (
           <button onClick={handleSave} className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-cyan-700 hover:to-blue-700 shadow">
             <Save size={15} /> บันทึก
           </button>
+          )}
         </div>
 
         <div className="p-5 space-y-4">

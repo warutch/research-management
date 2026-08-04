@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   Project, Quotation, Activity, MemberId, PaymentInstallment, PaymentRecord,
   DistributionRecord, TrackingActivity, PoolTransaction, HORSE_PERCENT, POOL_PERCENT,
@@ -48,6 +49,11 @@ interface AppState {
   setYearFilter: (f: YearFilter) => void;
   setSearchQuery: (q: string) => void;
   resetFilters: () => void;
+
+  // โหมดแก้ไข (global) — ปกติซ่อนปุ่มแก้ไข/ลบทุกหน้า กดเปิดเมื่อต้องการแก้/ลบ
+  editMode: boolean;
+  setEditMode: (v: boolean) => void;
+  toggleEditMode: () => void;
 
   // Raw (ไม่ filter) — ใช้ภายใน
   _allProjects: Project[];
@@ -257,7 +263,16 @@ function logErr(action: string, error: unknown) {
   console.error(`[Supabase] ${action} error:`, summary, { info: errorInfo, raw: e, type: `${typeof e}/${e?.constructor?.name || '?'}` });
 }
 
-export const useStore = create<AppState>()((set, get) => ({
+// ============================================================
+// Persist middleware: cache raw data + filters ใน localStorage
+// เพื่อให้ refresh หน้าเห็นข้อมูลทันที (SWR pattern: paint cache → fetch fresh พื้นหลัง)
+// ============================================================
+// - partialize: persist เฉพาะ raw arrays + filters (ไม่รวม derived views + dataLoaded)
+// - onRehydrate: recompute filter views + trigger loadAllData() พื้นหลัง
+// - version: bump ถ้าเปลี่ยน data shape → cache เก่าถูก reset อัตโนมัติ
+// ขนาด: ~500KB-1MB (loadAllData ตัด slip payload ออกอยู่แล้ว) — ใต้ 5MB limit ของ localStorage
+export const useStore = create<AppState>()(persist(
+  (set, get) => ({
   // Filters
   typeFilter: 'all',
   statusFilter: 'all',
@@ -287,6 +302,11 @@ export const useStore = create<AppState>()((set, get) => ({
       return { ...next, ...recomputeFiltered({ ...state, ...next }) };
     });
   },
+
+  // โหมดแก้ไข (global)
+  editMode: false,
+  setEditMode: (v) => set({ editMode: v }),
+  toggleEditMode: () => set((state) => ({ editMode: !state.editMode })),
 
   // Data
   _allProjects: [],
@@ -875,6 +895,51 @@ export const useStore = create<AppState>()((set, get) => ({
     } catch (e) {
       console.error('[Migrate] failed:', e);
       throw e;
+    }
+  },
+}), {
+  name: 'research-mgmt-cache-v1',
+  version: 1,
+  storage: createJSONStorage(() => localStorage),
+  // Persist เฉพาะ raw data + filters — ไม่รวม derived views (recompute เอง) และ dataLoaded (บังคับ refetch)
+  partialize: (state) => ({
+    _allProjects: state._allProjects,
+    _allPayments: state._allPayments,
+    _allDistributions: state._allDistributions,
+    _allQuotations: state._allQuotations,
+    _allTrackingActivities: state._allTrackingActivities,
+    poolTransactions: state.poolTransactions,
+    typeFilter: state.typeFilter,
+    statusFilter: state.statusFilter,
+    yearFilter: state.yearFilter,
+  }),
+  // หลัง rehydrate จาก localStorage — recompute filter views + kick off background refresh
+  onRehydrateStorage: () => (state, error) => {
+    if (error) {
+      console.warn('[persist] rehydrate error:', error);
+      return;
+    }
+    if (!state) return;
+    // Recompute derived views (filters อาจไม่ตรงกับข้อมูล cached)
+    Object.assign(state, recomputeFiltered({
+      _allProjects: state._allProjects,
+      _allPayments: state._allPayments,
+      _allDistributions: state._allDistributions,
+      _allQuotations: state._allQuotations,
+      _allTrackingActivities: state._allTrackingActivities,
+      typeFilter: state.typeFilter,
+      statusFilter: state.statusFilter,
+      yearFilter: state.yearFilter,
+      searchQuery: state.searchQuery,
+    }));
+    // ถ้ามี cache อยู่ → mark dataLoaded=true ให้ UI paint ทันที
+    // แล้ว trigger loadAllData() พื้นหลังเพื่อ refresh (SWR)
+    if (state._allProjects.length > 0) {
+      state.dataLoaded = true;
+      // defer to next tick — ให้ store init เสร็จก่อน
+      setTimeout(() => {
+        state.loadAllData?.().catch((e) => console.warn('[persist] background refresh failed:', e));
+      }, 0);
     }
   },
 }));

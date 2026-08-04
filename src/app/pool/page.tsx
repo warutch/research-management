@@ -59,7 +59,7 @@ export default function PoolPage() {
     _allDistributions,
     _allProjects,
     addPoolTransaction, updatePoolTransaction, deletePoolTransaction,
-    fetchSlipsFor,
+    fetchSlipsFor, editMode,
   } = useStore();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -405,9 +405,11 @@ export default function PoolPage() {
                                 <ExternalLink size={13} />
                               </Link>
                             )}
+                            {editMode && (
                             <span className="p-1 text-gray-300" title="แก้ไขในหน้าโครงการเท่านั้น">
                               <Trash2 size={13} />
                             </span>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -455,8 +457,8 @@ export default function PoolPage() {
                               <ImageIcon size={13} />
                             </button>
                           )}
-                          <button onClick={() => openEdit(tx)} className="p-1 text-gray-400 hover:text-gray-600" title="แก้ไข"><Pencil size={13} /></button>
-                          <button onClick={() => handleDelete(tx)} className="p-1 text-gray-400 hover:text-red-500" title="ลบ"><Trash2 size={13} /></button>
+                          {editMode && <button onClick={() => openEdit(tx)} className="p-1 text-gray-400 hover:text-gray-600" title="แก้ไข"><Pencil size={13} /></button>}
+                          {editMode && <button onClick={() => handleDelete(tx)} className="p-1 text-gray-400 hover:text-red-500" title="ลบ"><Trash2 size={13} /></button>}
                         </div>
                       </td>
                     </tr>

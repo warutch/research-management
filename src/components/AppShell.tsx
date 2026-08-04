@@ -12,7 +12,7 @@ import GlobalSearch from './GlobalSearch';
 import { useStore, getProjectYear, getLatestYear, type StatusFilter, type YearFilter } from '@/store/useStore';
 import { PROJECT_TYPE_COLORS, PROJECT_TYPE_LABELS, type ProjectTypeFilter } from '@/types';
 import { cn } from '@/lib/utils';
-import { Filter, Search, X, RotateCcw } from 'lucide-react';
+import { Filter, Search, X, RotateCcw, Pencil, Check } from 'lucide-react';
 import { useMemo } from 'react';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -108,11 +108,36 @@ function PageHeader() {
             <p className="text-[10px] lg:text-xs text-white/80 truncate">{meta.subtitle}</p>
           </div>
         </div>
-        <div className="text-[10px] text-white/90 bg-white/15 backdrop-blur px-2.5 py-1 rounded-full border border-white/20 whitespace-nowrap">
-          as of {today}
+        <div className="flex items-center gap-2 shrink-0">
+          <EditModeToggle />
+          <div className="text-[10px] text-white/90 bg-white/15 backdrop-blur px-2.5 py-1 rounded-full border border-white/20 whitespace-nowrap">
+            as of {today}
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// ปุ่มสลับโหมดแก้ไข (global) — มุมขวาบน มีผลทุกหน้า ทุกแท็บ
+function EditModeToggle() {
+  const editMode = useStore((s) => s.editMode);
+  const toggleEditMode = useStore((s) => s.toggleEditMode);
+  return (
+    <button
+      onClick={toggleEditMode}
+      title={editMode ? 'กำลังอยู่ในโหมดแก้ไข — กดเพื่อออก' : 'เปิดโหมดแก้ไข (แสดงปุ่มแก้ไข/ลบ)'}
+      aria-pressed={editMode}
+      className={cn(
+        'flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors whitespace-nowrap',
+        editMode
+          ? 'bg-white text-indigo-600 border-white shadow-sm'
+          : 'bg-white/15 text-white border-white/25 hover:bg-white/25'
+      )}
+    >
+      {editMode ? <Check size={12} /> : <Pencil size={12} />}
+      {editMode ? 'กำลังแก้ไข' : 'แก้ไข'}
+    </button>
   );
 }
 
@@ -249,7 +274,7 @@ function TopFilterBar() {
         {searchQuery ? (
           <button
             onClick={() => setSearchQuery('')}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-600 hover:bg-red-50 p-0.5 rounded-full"
             aria-label="ล้างคำค้นหา"
           >
             <X size={11} />

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta } from '@/types';
-import { formatCurrency, formatDate, getStatusLabel, getStatusColor } from '@/lib/utils';
-import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
+import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, Search } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
 import { toast } from '@/components/Toast';
@@ -65,6 +65,147 @@ function buildDefaultInstallments(type: ProjectType, acts: DefaultActivity[]): {
   ];
 }
 
+// Memoized list row — re-render เฉพาะเมื่อ project/isSelected/paid เปลี่ยน
+// เดิม: filter/search 1 ตัวอักษร → re-render ทุก tab (50+ buttons)
+// ตอนนี้: มีเฉพาะ row ที่ selection state เปลี่ยน (2 rows) re-render
+const statusDotClass = (status: string) =>
+  status === 'completed' ? 'bg-green-500' : status === 'in_progress' ? 'bg-blue-500' : 'bg-yellow-500';
+
+const STATUS_BADGE: Record<string, { dot: string; cls: string; label: string }> = {
+  pending: { dot: 'bg-yellow-500', cls: 'bg-yellow-50 text-yellow-700 border-yellow-200', label: 'รอดำเนินการ' },
+  in_progress: { dot: 'bg-blue-500', cls: 'bg-blue-50 text-blue-700 border-blue-200', label: 'กำลังดำเนินการ' },
+  completed: { dot: 'bg-green-500', cls: 'bg-green-50 text-green-700 border-green-200', label: 'เสร็จสิ้น' },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_BADGE[status] || STATUS_BADGE.pending;
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${s.cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
+  );
+}
+
+// Dropdown เลือกโครงการ — sticky ไว้ข้างบน, มี search ในตัว, ปิดเมื่อคลิกนอก/กด Esc
+function ProjectDropdown({
+  projects, selectedId, paidByProject, onSelect, onAdd,
+}: {
+  projects: Project[];
+  selectedId: string | null;
+  paidByProject: Record<string, number>;
+  onSelect: (id: string) => void;
+  onAdd: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const selected = projects.find((p) => p.id === selectedId) || null;
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? projects.filter((p) => `${p.name} ${p.projectCode || ''} ${p.client || ''}`.toLowerCase().includes(q))
+    : projects;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-left shadow-sm hover:border-gray-300 transition-colors"
+      >
+        {selected ? (
+          <>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass(selected.status)}`} />
+            <span className="font-mono text-[11px] text-gray-400 shrink-0">{selected.projectCode}</span>
+            <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-800">{selected.name}</span>
+          </>
+        ) : (
+          <span className="flex-1 text-sm text-gray-400">เลือกโครงการ...</span>
+        )}
+        <ChevronDown size={16} className={`shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 rounded-lg">
+              <Search size={14} className="text-gray-400 shrink-0" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="ค้นหาโครงการ..."
+                className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-gray-400"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="เคลียร์คำค้นหา"
+                  className="shrink-0 p-0.5 rounded text-red-500 hover:text-red-600 hover:bg-red-50"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="max-h-[340px] overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-gray-400">ไม่พบโครงการ</p>
+            ) : filtered.map((p) => {
+              const acts = p.activities || [];
+              const progress = acts.length > 0 ? Math.round(acts.filter((a) => a.status === 'completed').length / acts.length * 100) : 0;
+              const totalInst = (p.installments || []).reduce((s, i) => s + i.amount, 0);
+              const outstanding = totalInst - (paidByProject[p.id] || 0);
+              const isSel = p.id === selectedId;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => { onSelect(p.id); setOpen(false); setQuery(''); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left ${isSel ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 self-start ${statusDotClass(p.status)}`} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate text-[13px] font-medium text-gray-800">{p.name}</span>
+                    <span className="block truncate text-[11px] text-gray-400">
+                      <span className="font-mono">{p.projectCode}</span>
+                      {p.client ? <span className="text-gray-500"> · {p.client}</span> : null}
+                    </span>
+                  </span>
+                  {isSel ? (
+                    <Check size={15} className="shrink-0 text-indigo-600" />
+                  ) : outstanding > 0 ? (
+                    <span className="shrink-0 text-[11px] font-semibold text-red-500">ค้าง ฿{outstanding.toLocaleString()}</span>
+                  ) : (
+                    <span className="shrink-0 text-[11px] font-medium tabular-nums text-gray-400">{progress}%</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => { setOpen(false); onAdd(); }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 border-t border-gray-100 text-indigo-600 hover:bg-indigo-50 text-sm font-medium"
+          >
+            <Plus size={15} /> เพิ่มโครงการ
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const hydrated = useHydrated();
   const {
@@ -73,7 +214,7 @@ export default function ProjectsPage() {
     addInstallment, updateInstallment, deleteInstallment,
     payments, addPayment, updatePayment, deletePayment,
     distributions, addDistribution, deleteDistribution,
-    fetchSlipsFor,
+    fetchSlipsFor, editMode,
   } = useStore();
   const [loadingSlipId, setLoadingSlipId] = useState<string | null>(null);
 
@@ -102,11 +243,27 @@ export default function ProjectsPage() {
     [projects]
   );
 
+  // ยอดรับเงินรวมต่อโครงการ — ใช้โชว์ "เงินค้าง" บนการ์ด
+  const paidByProject = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const p of payments) m[p.projectId] = (m[p.projectId] || 0) + p.amount;
+    return m;
+  }, [payments]);
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0 });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(sortedProjects[0]?.id || null);
   const [activeTab, setActiveTab] = useState<'activities' | 'installments' | 'payments' | 'distribution'>('activities');
+
+  // ให้ selection ตามตัวกรองเสมอ — ถ้าโครงการที่เลือกถูกกรองออก (หรือยังไม่ได้เลือก)
+  // ให้เด้งไปโครงการแรกที่มองเห็น เพื่อให้ตัวกรองด้านบนมีผลกับรายละเอียดที่โชว์
+  useEffect(() => {
+    if (sortedProjects.length === 0) return;
+    if (!selectedProjectId || !sortedProjects.some((p) => p.id === selectedProjectId)) {
+      setSelectedProjectId(sortedProjects[0].id);
+    }
+  }, [selectedProjectId, sortedProjects]);
 
   // รับ ?id=<projectId> จาก query param → auto select project
   const searchParams = useSearchParams();
@@ -348,12 +505,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <button onClick={openNewProjectForm} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
-          <Plus size={16} /> เพิ่มโครงการ
-        </button>
-      </div>
-
       {/* Project Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -453,7 +604,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Excel-style Project Tabs */}
+      {/* Project selector (dropdown) + detail */}
       {sortedProjects.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
           <p className="text-gray-400 mb-2">ยังไม่มีโครงการ</p>
@@ -461,40 +612,25 @@ export default function ProjectsPage() {
         </div>
       ) : (
         <div>
-          {/* Tab Bar */}
-          <div className="flex items-end overflow-x-auto gap-0.5 pb-0">
-            {sortedProjects.map((project, index) => {
-              const isSelected = (selectedProjectId || sortedProjects[0]?.id) === project.id;
-              const statusDot = project.status === 'completed' ? 'bg-green-500' : project.status === 'in_progress' ? 'bg-blue-500' : 'bg-yellow-500';
-              const tabBg = project.status === 'completed'
-                ? (isSelected ? 'bg-green-100 border-green-400 text-green-900' : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100')
-                : project.status === 'in_progress'
-                ? (isSelected ? 'bg-blue-100 border-blue-400 text-blue-900' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100')
-                : (isSelected ? 'bg-yellow-100 border-yellow-400 text-yellow-900' : 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100');
-
-              return (
-                <button
-                  key={project.id}
-                  onClick={() => setSelectedProjectId(project.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-b-0 rounded-t-lg transition-colors whitespace-nowrap ${tabBg} ${isSelected ? 'z-10 -mb-px' : 'opacity-80'}`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${statusDot}`} />
-                  {project.projectCode && <span className="font-mono text-gray-500">{project.projectCode}</span>}
-                  <span className="max-w-[120px] truncate text-gray-700">{project.name}</span>
-                </button>
-              );
-            })}
-            <button
-              onClick={openNewProjectForm}
-              className="flex items-center gap-1 px-3 py-2 text-xs font-medium border border-b-0 rounded-t-lg bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-500 whitespace-nowrap"
-            >
-              <Plus size={12} /> เพิ่ม
-            </button>
+          {/* Sticky dropdown bar — เกาะใต้ header เวลา scroll */}
+          <div
+            className="sticky z-20 -mx-4 lg:-mx-8 px-4 lg:px-8 py-2.5 bg-white/85 backdrop-blur border-b border-gray-100"
+            style={{ top: 'var(--top-bar-h, 0px)' }}
+          >
+            <ProjectDropdown
+              projects={sortedProjects}
+              selectedId={selectedProjectId}
+              paidByProject={paidByProject}
+              onSelect={setSelectedProjectId}
+              onAdd={openNewProjectForm}
+            />
           </div>
 
-          {/* Selected Project Content */}
+          {/* Selected project detail */}
+          {selectedProjectId && (
+          <div className="mt-4 min-w-0">
           {(() => {
-            const project = sortedProjects.find(p => p.id === selectedProjectId) || sortedProjects[0];
+            const project = sortedProjects.find(p => p.id === selectedProjectId);
             if (!project) return null;
             const totalCost = project.activities.reduce((s, a) => s + a.cost, 0);
             const progress = project.activities.length > 0 ? Math.round(project.activities.filter((a) => a.status === 'completed').length / project.activities.length * 100) : 0;
@@ -505,18 +641,18 @@ export default function ProjectsPage() {
             const panelBorder = project.status === 'completed' ? 'border-green-400' : project.status === 'in_progress' ? 'border-blue-400' : 'border-yellow-400';
 
             return (
-              <div className={`bg-white rounded-b-xl rounded-tr-xl border shadow-sm ${panelBorder}`}>
+              <div className={`bg-white rounded-xl border shadow-sm ${panelBorder}`}>
                 {/* Project Header */}
                 <div className="p-5 border-b">
                   <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        {project.projectCode && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">{project.projectCode}</span>}
-                        <h3 className="font-semibold text-gray-900">{project.name}</h3>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium border ${PROJECT_TYPE_COLORS[project.type].bg} ${PROJECT_TYPE_COLORS[project.type].text} ${PROJECT_TYPE_COLORS[project.type].border}`}>{PROJECT_TYPE_LABELS[project.type]}</span>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(project.status)}`}>{getStatusLabel(project.status)}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        {project.projectCode && <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded font-mono">{project.projectCode}</span>}
+                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${PROJECT_TYPE_COLORS[project.type].bg} ${PROJECT_TYPE_COLORS[project.type].text} ${PROJECT_TYPE_COLORS[project.type].border}`}>{PROJECT_TYPE_LABELS[project.type]}</span>
+                        <StatusBadge status={project.status} />
                       </div>
-                      <p className="text-sm text-gray-500">{project.client || 'ไม่ระบุผู้วิจัย'}</p>
+                      <h3 className="font-semibold text-gray-900 leading-snug">{project.name}</h3>
+                      <p className="text-sm text-gray-500 mt-0.5">{project.client || 'ไม่ระบุผู้วิจัย'}</p>
                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                         <span>งบ: {formatCurrency(project.budget)}</span>
                         <span>ค่าใช้จ่าย: {formatCurrency(totalCost)}</span>
@@ -527,10 +663,12 @@ export default function ProjectsPage() {
                         <span className="text-xs text-gray-500">{progress}%</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 ml-4">
-                      <button onClick={() => handleEditProject(project)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><Pencil size={15} /></button>
-                      <button onClick={() => { if (confirm('ต้องการลบโครงการนี้?')) { const otherId = sortedProjects.find(p => p.id !== project.id)?.id || null; deleteProject(project.id); setSelectedProjectId(otherId); } }} className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-gray-50"><Trash2 size={15} /></button>
+                    {editMode && (
+                    <div className="flex items-center gap-1 ml-4 shrink-0">
+                      <button onClick={() => handleEditProject(project)} title="แก้ไขโครงการ" className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-50"><Pencil size={15} /></button>
+                      <button onClick={() => { if (confirm('ต้องการลบโครงการนี้?')) { const otherId = sortedProjects.find(p => p.id !== project.id)?.id || null; deleteProject(project.id); setSelectedProjectId(otherId); } }} title="ลบโครงการ" className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-gray-50"><Trash2 size={15} /></button>
                     </div>
+                    )}
                   </div>
                 </div>
 
@@ -562,6 +700,7 @@ export default function ProjectsPage() {
                       <div className="p-5">
                         <div className="flex items-center justify-between mb-4">
                           <p className="text-xs text-gray-500">* หักManager + Pool money (ปรับ % รายกิจกรรมได้)</p>
+                          {editMode && (
                           <button onClick={() => {
                             // Smart default: ใช้ sharePercent + horsePercent + poolPercent ของกิจกรรมล่าสุดในโครงการ
                             // (ถ้าไม่มีกิจกรรม fallback เป็น 0 ทั้งหมด)
@@ -573,6 +712,7 @@ export default function ProjectsPage() {
                             setActivityForm(defaults);
                             setEditingActivityId(null);
                           }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มกิจกรรม</button>
+                          )}
                         </div>
 
                         {showActivityForm === project.id && (
@@ -691,10 +831,14 @@ export default function ProjectsPage() {
                                       </select>
                                     </td>
                                     <td className="py-2.5 text-right">
-                                      <div className="flex items-center justify-end gap-1">
-                                        <button onClick={() => handleEditActivity(project.id, activity)} className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
-                                        <button onClick={() => { if (confirm('ลบกิจกรรมนี้?')) deleteActivity(project.id, activity.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
-                                      </div>
+                                      {editMode ? (
+                                        <div className="flex items-center justify-end gap-1">
+                                          <button onClick={() => handleEditActivity(project.id, activity)} className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
+                                          <button onClick={() => { if (confirm('ลบกิจกรรมนี้?')) deleteActivity(project.id, activity.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-gray-300">—</span>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}
@@ -760,8 +904,8 @@ export default function ProjectsPage() {
                         <div className="flex items-center justify-between mb-4">
                           <p className="text-xs text-gray-500">จัดการงวดการชำระเงินของโครงการ</p>
                           <div className="flex gap-2">
-                            <button onClick={() => handleAutoFillInstallments(project)} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-amber-500 text-white rounded-lg hover:bg-amber-600" title="คำนวณจำนวนเงินงวด 1-3 อัตโนมัติจากกิจกรรม"><Calculator size={14} /> คำนวณอัตโนมัติ</button>
-                            <button onClick={() => { const nextNum = installments.length > 0 ? Math.max(...installments.map((i) => i.installmentNumber || 0)) + 1 : 1; setShowInstallmentForm(project.id); setInstallmentForm({ ...emptyInstallment(), installmentNumber: nextNum }); setEditingInstallmentId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มงวดเงิน</button>
+                            {editMode && <button onClick={() => handleAutoFillInstallments(project)} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-amber-500 text-white rounded-lg hover:bg-amber-600" title="คำนวณจำนวนเงินงวด 1-3 อัตโนมัติจากกิจกรรม"><Calculator size={14} /> คำนวณอัตโนมัติ</button>}
+                            {editMode && <button onClick={() => { const nextNum = installments.length > 0 ? Math.max(...installments.map((i) => i.installmentNumber || 0)) + 1 : 1; setShowInstallmentForm(project.id); setInstallmentForm({ ...emptyInstallment(), installmentNumber: nextNum }); setEditingInstallmentId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มงวดเงิน</button>}
                           </div>
                         </div>
 
@@ -842,10 +986,12 @@ export default function ProjectsPage() {
                                               {instFullyPaid ? '✅ ชำระครบ' : instPaid > 0 ? `โอนแล้ว ${paidPercent}%` : 'รอชำระ'}
                                             </span>
                                           </div>
+                                          {editMode && (
                                           <div className="flex gap-1">
                                             <button onClick={() => handleEditInstallment(project.id, inst)} className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
                                             <button onClick={() => { if (confirm('ลบงวดเงินนี้?')) deleteInstallment(project.id, inst.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
                                           </div>
+                                          )}
                                         </div>
                                       </div>
                                       {/* Progress bar */}
@@ -1018,10 +1164,12 @@ export default function ProjectsPage() {
                                           </button>
                                         );
                                       })()}
+                                      {editMode && (
                                       <div className="flex gap-1">
                                         <button onClick={() => handleEditPayment(project.id, payment)} className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
                                         <button onClick={() => { if (confirm('ลบรายการโอนนี้?')) { deletePayment(payment.id); setTimeout(() => syncInstallmentStatus(project.id, payment.installmentId), 100); } }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
                                       </div>
+                                      )}
                                     </div>
                                   </div>
                                 );
@@ -1458,7 +1606,7 @@ export default function ProjectsPage() {
                                                   </button>
                                                 );
                                               })()}
-                                              <button onClick={() => { if (confirm('ลบรายการนี้?')) deleteDistribution(dist.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+                                              {editMode && <button onClick={() => { if (confirm('ลบรายการนี้?')) deleteDistribution(dist.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>}
                                             </div>
                                           </div>
                                         ))}
@@ -1584,6 +1732,8 @@ export default function ProjectsPage() {
               </div>
             );
           })()}
+          </div>
+          )}
         </div>
       )}
     </div>

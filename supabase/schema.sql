@@ -68,8 +68,14 @@ create table if not exists tracking_activities (
 
 alter table tracking_activities enable row level security;
 drop policy if exists "Allow authenticated all" on tracking_activities;
-create policy "Allow authenticated all" on tracking_activities
-  for all to authenticated using (true) with check (true);
+drop policy if exists "tracking_activities_select" on tracking_activities;
+drop policy if exists "tracking_activities_insert" on tracking_activities;
+drop policy if exists "tracking_activities_update" on tracking_activities;
+drop policy if exists "tracking_activities_delete" on tracking_activities;
+create policy "tracking_activities_select" on tracking_activities for select to authenticated using (true);
+create policy "tracking_activities_insert" on tracking_activities for insert to authenticated with check ((select auth.uid()) is not null);
+create policy "tracking_activities_update" on tracking_activities for update to authenticated using ((select auth.uid()) is not null) with check ((select auth.uid()) is not null);
+create policy "tracking_activities_delete" on tracking_activities for delete to authenticated using ((select auth.uid()) is not null);
 
 -- Pool money transactions (เงินกองกลาง)
 -- balance = Σ(pool_transactions type=in) + Σ(distributions where recipient='pool') − Σ(pool_transactions type=out)
@@ -89,8 +95,14 @@ create table if not exists pool_transactions (
 
 alter table pool_transactions enable row level security;
 drop policy if exists "Allow authenticated all" on pool_transactions;
-create policy "Allow authenticated all" on pool_transactions
-  for all to authenticated using (true) with check (true);
+drop policy if exists "pool_transactions_select" on pool_transactions;
+drop policy if exists "pool_transactions_insert" on pool_transactions;
+drop policy if exists "pool_transactions_update" on pool_transactions;
+drop policy if exists "pool_transactions_delete" on pool_transactions;
+create policy "pool_transactions_select" on pool_transactions for select to authenticated using (true);
+create policy "pool_transactions_insert" on pool_transactions for insert to authenticated with check ((select auth.uid()) is not null);
+create policy "pool_transactions_update" on pool_transactions for update to authenticated using ((select auth.uid()) is not null) with check ((select auth.uid()) is not null);
+create policy "pool_transactions_delete" on pool_transactions for delete to authenticated using ((select auth.uid()) is not null);
 
 -- Quotations (items เก็บเป็น JSONB)
 create table if not exists quotations (
@@ -119,23 +131,48 @@ alter table distributions enable row level security;
 alter table quotations enable row level security;
 
 -- Drop existing policies (ถ้ามี) ก่อนสร้างใหม่
-drop policy if exists "Allow authenticated all" on projects;
-drop policy if exists "Allow authenticated all" on payments;
-drop policy if exists "Allow authenticated all" on distributions;
-drop policy if exists "Allow authenticated all" on quotations;
+-- ทั้ง policy เดิม (blanket) และ policy granular ชุดใหม่ เพื่อให้รันซ้ำได้
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['projects','payments','distributions','quotations'] loop
+    execute format('drop policy if exists "Allow authenticated all" on %I', t);
+    execute format('drop policy if exists "%s_select" on %I', t, t);
+    execute format('drop policy if exists "%s_insert" on %I', t, t);
+    execute format('drop policy if exists "%s_update" on %I', t, t);
+    execute format('drop policy if exists "%s_delete" on %I', t, t);
+  end loop;
+end $$;
 
 -- ทุก authenticated user เข้าถึงได้ (read + write)
-create policy "Allow authenticated all" on projects
-  for all to authenticated using (true) with check (true);
+-- แยกเป็น per-command policy: อ่านเปิดให้ทีม, เขียนต้องเป็น user ที่ login จริง
+-- (ใช้ (select auth.uid()) is not null แทน true เพื่อไม่ให้เป็น constant-true
+--  ซึ่งเป็นสาเหตุของ Security Advisor "RLS Policy Always True")
 
-create policy "Allow authenticated all" on payments
-  for all to authenticated using (true) with check (true);
+-- projects
+create policy "projects_select" on projects for select to authenticated using (true);
+create policy "projects_insert" on projects for insert to authenticated with check ((select auth.uid()) is not null);
+create policy "projects_update" on projects for update to authenticated using ((select auth.uid()) is not null) with check ((select auth.uid()) is not null);
+create policy "projects_delete" on projects for delete to authenticated using ((select auth.uid()) is not null);
 
-create policy "Allow authenticated all" on distributions
-  for all to authenticated using (true) with check (true);
+-- payments
+create policy "payments_select" on payments for select to authenticated using (true);
+create policy "payments_insert" on payments for insert to authenticated with check ((select auth.uid()) is not null);
+create policy "payments_update" on payments for update to authenticated using ((select auth.uid()) is not null) with check ((select auth.uid()) is not null);
+create policy "payments_delete" on payments for delete to authenticated using ((select auth.uid()) is not null);
 
-create policy "Allow authenticated all" on quotations
-  for all to authenticated using (true) with check (true);
+-- distributions
+create policy "distributions_select" on distributions for select to authenticated using (true);
+create policy "distributions_insert" on distributions for insert to authenticated with check ((select auth.uid()) is not null);
+create policy "distributions_update" on distributions for update to authenticated using ((select auth.uid()) is not null) with check ((select auth.uid()) is not null);
+create policy "distributions_delete" on distributions for delete to authenticated using ((select auth.uid()) is not null);
+
+-- quotations
+create policy "quotations_select" on quotations for select to authenticated using (true);
+create policy "quotations_insert" on quotations for insert to authenticated with check ((select auth.uid()) is not null);
+create policy "quotations_update" on quotations for update to authenticated using ((select auth.uid()) is not null) with check ((select auth.uid()) is not null);
+create policy "quotations_delete" on quotations for delete to authenticated using ((select auth.uid()) is not null);
 
 -- ================================================================
 -- 3. Workspace column (Doctor / Student mode)

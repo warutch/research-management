@@ -23,7 +23,7 @@ const emptyItem = (): QuotationItem => ({
 
 export default function QuotationsPage() {
   const hydrated = useHydrated();
-  const { quotations, projects, addQuotation, updateQuotation, deleteQuotation } = useStore();
+  const { quotations, projects, addQuotation, updateQuotation, deleteQuotation, editMode } = useStore();
 
   const createEmptyForm = (): QuotationForm => ({
     quotationNumber: generateQuotationNumber(quotations.map((q) => q.quotationNumber)),
@@ -482,12 +482,16 @@ export default function QuotationsPage() {
                           <button onClick={() => generateQuotationPdf(q)} className="p-1.5 text-gray-400 hover:text-green-600 rounded hover:bg-gray-100" title="Export PDF">
                             <FileDown size={15} />
                           </button>
+                          {editMode && (
+                          <>
                           <button onClick={() => handleEdit(q)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100" title="Edit">
                             <Pencil size={15} />
                           </button>
                           <button onClick={() => { if (confirm('ลบใบเสนอราคานี้?')) deleteQuotation(q.id); }} className="p-1.5 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100" title="Delete">
                             <Trash2 size={15} />
                           </button>
+                          </>
+                          )}
                         </div>
                       </td>
                     </tr>

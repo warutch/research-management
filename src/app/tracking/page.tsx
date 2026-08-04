@@ -10,7 +10,7 @@ import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CalendarDays
 
 export default function TrackingPage() {
   const hydrated = useHydrated();
-  const { trackingActivities, projects, addTrackingActivity, updateTrackingActivity, deleteTrackingActivity } = useStore();
+  const { trackingActivities, projects, addTrackingActivity, updateTrackingActivity, deleteTrackingActivity, editMode } = useStore();
 
   const [view, setView] = useState<CalendarViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -214,6 +214,7 @@ export default function TrackingPage() {
         onClose={() => { setModalOpen(false); setEditingActivity(null); }}
         onSave={handleSave}
         onDelete={handleDelete}
+        canEdit={editMode}
       />
     </div>
   );
