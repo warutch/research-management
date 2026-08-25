@@ -307,15 +307,19 @@ cd /Users/warut.ch/Documents/ResearchProject/Portfolio && \
 
 ถ้าเจอปัญหา deploy ลองดู build logs ใน Vercel ก่อน หรือทดสอบ `npx next build` บน local — จะเห็น error ที่ตรงกันครับ ✨
 
+---
 
-เปิด server
-cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management && npx next dev
+## 🖥️ คำสั่งที่ใช้บ่อย (local)
 
-ปิด server
-กด Ctrl + C
+```bash
+# เปิด dev server
+cd /Users/warut.ch/Documents/ResearchProject/Portfolio/research-management && npm run dev
 
+# ถ้า port 3000 ค้าง — kill แล้วเปิดใหม่
+lsof -tiTCP:3000 -sTCP:LISTEN | xargs -r kill; sleep 1; npm run dev
 
-Username:admin@research.com
-Password:research1234
+# ปิด server: กด Ctrl + C
+```
 
-
+> 🔐 **บัญชี login** สร้าง/จัดการใน Supabase → Authentication → Users
+> **อย่าเขียน username/password ลงในไฟล์เอกสารหรือ commit ขึ้น Git** (ใช้ password manager แทน)

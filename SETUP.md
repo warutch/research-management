@@ -1,6 +1,6 @@
 # 🚀 Setup Guide — Research Management System
 
-คู่มือ setup ระบบให้ทีม 3 คนใช้งานร่วมกัน
+คู่มือ setup ระบบให้ทีมวิจัยใช้งานร่วมกัน (Specialist / Analyst / Coordinator + ส่วนแบ่ง Manager / Pool money / Commission)
 
 ---
 
@@ -19,8 +19,8 @@
 2. Sign up ด้วย GitHub หรือ email (ฟรี)
 3. กด **"New Project"**:
    - **Name:** `research-management`
-   - **Database Password:** ตั้งรหัสผ่าน (จดไว้)
-   Current pass: VkvMbmNwrPCjjYaE
+   - **Database Password:** ตั้งรหัสผ่าน แล้วเก็บไว้ในที่ปลอดภัย (เช่น password manager)
+     — **อย่าเขียนรหัสผ่านลงในไฟล์เอกสารหรือ commit ขึ้น Git**
    - **Region:** Singapore (ใกล้ไทยที่สุด)
 4. รอ 1-2 นาทีให้ Supabase สร้าง project
 
@@ -34,7 +34,14 @@
 4. วางใน SQL Editor → กด **"Run"** (มุมขวาล่าง)
 5. ✅ ควรขึ้น "Success. No rows returned"
 
-ตรวจสอบ: ไปที่ **Table Editor** ควรเห็น 4 tables: `projects`, `payments`, `distributions`, `quotations`
+`schema.sql` จะสร้าง table ทั้งหมด + เปิด **Row Level Security (RLS)** + policy ให้เอง (รันซ้ำได้ ไม่ทับข้อมูล)
+
+ตรวจสอบ: ไปที่ **Table Editor** ควรเห็น **6 tables**:
+`projects`, `payments`, `distributions`, `quotations`, `tracking_activities`, `pool_transactions`
+
+> 🔐 **RLS (แนะนำ):** รันไฟล์ `supabase/fix_rls_always_true.sql` เพิ่มอีกครั้งใน SQL Editor
+> เพื่อปรับ policy การเขียน (INSERT/UPDATE/DELETE) ให้ต้องเป็น user ที่ login จริง
+> แทนการเปิดกว้าง `USING (true)` — แก้ warning "RLS Policy Always True" ของ Supabase Advisor
 
 ---
 
@@ -42,13 +49,14 @@
 
 1. ใน Supabase Dashboard → **Authentication** → **Users**
 2. กด **"Add user"** → **"Create new user"**
-3. สร้าง 3 บัญชี:
-   - `tangmo@research.com` + password
-   - `frank@research.com` + password
-   - `ton@research.com` + password
+3. สร้างบัญชีให้สมาชิกในทีม (คนละ 1 บัญชี) เช่น:
+   - `specialist@research.com` + password
+   - `analyst@research.com` + password
+   - `coordinator@research.com` + password
 4. ✅ กด **"Auto Confirm User"** เพื่อไม่ต้อง verify email
 
-> 💡 ใช้ email อะไรก็ได้ ไม่จำเป็นต้องเป็นอีเมลจริง
+> 💡 ใช้ email อะไรก็ได้ ไม่จำเป็นต้องเป็นอีเมลจริง — ทุก user ที่ login เห็นข้อมูลชุดเดียวกัน (ระบบใช้ร่วมกันทั้งทีม)
+> 🔑 เก็บรหัสผ่านไว้ใน password manager อย่าจดลงไฟล์ในโปรเจกต์
 
 ---
 
