@@ -39,7 +39,7 @@ export async function generateQuotationPdf(quotation: Quotation) {
   doc.text('ใบเสนอราคา / Quotation', pageWidth / 2, 25, { align: 'center' });
   doc.setFontSize(12);
   setNormal();
-  doc.text('Research Management', pageWidth / 2, 33, { align: 'center' });
+  doc.text('Research Management Services', pageWidth / 2, 33, { align: 'center' });
 
   // Quotation info
   doc.setFontSize(11);

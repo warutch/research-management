@@ -357,7 +357,7 @@ export default function QuotationsPage() {
             <div className="p-8">
               <div className="text-center mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">QUOTATION</h1>
-                <p className="text-sm text-gray-500">Research Management Co., Ltd.</p>
+                <p className="text-sm text-gray-500">Research Management Services</p>
               </div>
               <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                 <div>
