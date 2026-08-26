@@ -191,19 +191,19 @@ alter table tracking_activities add column if not exists workspace text not null
 -- บังคับให้ workspace เป็น 'doctor' หรือ 'student' เท่านั้น
 -- (drop ก่อน เผื่อรันซ้ำ)
 alter table projects drop constraint if exists projects_workspace_chk;
-alter table projects add constraint projects_workspace_chk check (workspace in ('doctor','student'));
+alter table projects add constraint projects_workspace_chk check (workspace in ('doctor','student','personal'));
 
 alter table payments drop constraint if exists payments_workspace_chk;
-alter table payments add constraint payments_workspace_chk check (workspace in ('doctor','student'));
+alter table payments add constraint payments_workspace_chk check (workspace in ('doctor','student','personal'));
 
 alter table distributions drop constraint if exists distributions_workspace_chk;
-alter table distributions add constraint distributions_workspace_chk check (workspace in ('doctor','student'));
+alter table distributions add constraint distributions_workspace_chk check (workspace in ('doctor','student','personal'));
 
 alter table quotations drop constraint if exists quotations_workspace_chk;
-alter table quotations add constraint quotations_workspace_chk check (workspace in ('doctor','student'));
+alter table quotations add constraint quotations_workspace_chk check (workspace in ('doctor','student','personal'));
 
 alter table tracking_activities drop constraint if exists tracking_activities_workspace_chk;
-alter table tracking_activities add constraint tracking_activities_workspace_chk check (workspace in ('doctor','student'));
+alter table tracking_activities add constraint tracking_activities_workspace_chk check (workspace in ('doctor','student','personal'));
 
 create index if not exists idx_projects_workspace on projects(workspace);
 create index if not exists idx_payments_workspace on payments(workspace);

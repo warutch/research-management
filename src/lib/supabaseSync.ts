@@ -3,7 +3,8 @@ import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity
 // DB column ชื่อ `workspace` (จาก migration) → TS field ชื่อ `type`
 const DEFAULT_PROJECT_TYPE: ProjectType = 'doctor';
 function normalizeProjectType(value: unknown): ProjectType {
-  return value === 'student' ? 'student' : DEFAULT_PROJECT_TYPE;
+  if (value === 'student' || value === 'personal') return value;
+  return DEFAULT_PROJECT_TYPE;
 }
 
 // ถ้า DB ยังไม่มี column 'workspace' (user ยังไม่ได้รัน migration)

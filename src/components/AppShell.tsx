@@ -183,6 +183,7 @@ function TopFilterBar() {
     { value: 'all', label: 'All' },
     { value: 'doctor', label: PROJECT_TYPE_LABELS.doctor },
     { value: 'student', label: PROJECT_TYPE_LABELS.student },
+    { value: 'personal', label: PROJECT_TYPE_LABELS.personal },
   ];
 
   const selectCls = 'px-2.5 py-1 rounded-full text-[11px] font-medium border border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer';

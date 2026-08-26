@@ -44,10 +44,16 @@ const DEFAULT_ACTIVITIES_BY_TYPE: Record<ProjectType, DefaultActivity[]> = {
     { name: 'Planning (Rational, Background, Research Design, Data Collection, Design CRF)', cost: 10000, sharePercent: { tangmo: 65, frank: 20, ton: 10 } },
     { name: 'Result (Analysis, Discussion, Conclusion)', cost: 10000, sharePercent: { tangmo: 35, frank: 45, ton: 15 } },
   ],
+  // Personal: งานส่วนตัว — เริ่มจากว่าง ผู้ใช้เพิ่มกิจกรรม/งวดเงินเอง
+  personal: [],
 };
 
 function buildDefaultInstallments(type: ProjectType, acts: DefaultActivity[]): { num: number; name: string; amount: number }[] {
   const totalAll = acts.reduce((s, a) => s + a.cost, 0);
+  if (type === 'personal') {
+    // Personal: ไม่มี preset งวดเงิน — เพิ่มเองภายหลัง
+    return [];
+  }
   if (type === 'student') {
     // Student: 2 งวด งวดละ 50% ของยอดรวม
     return [
@@ -559,11 +565,14 @@ export default function ProjectsPage() {
                   >
                     <option value="doctor">{PROJECT_TYPE_LABELS.doctor}</option>
                     <option value="student">{PROJECT_TYPE_LABELS.student}</option>
+                    <option value="personal">{PROJECT_TYPE_LABELS.personal}</option>
                   </select>
                   {!editingId && (
                     <p className="text-xs text-gray-400 mt-1">
                       {form.type === 'student'
                         ? `Student: 3 กิจกรรม + 2 งวด งวดละ 50% + Commission ฿${STUDENT_DEFAULT_COMMISSION.toLocaleString()}`
+                        : form.type === 'personal'
+                        ? 'Personal: งานส่วนตัว — เริ่มจากว่าง เพิ่มกิจกรรม/งวดเงินเอง'
                         : 'Doctor: 4 กิจกรรม + 3 งวด (มัดจำ/บทความ/Submit)'}
                     </p>
                   )}
