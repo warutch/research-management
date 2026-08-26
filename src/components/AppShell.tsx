@@ -10,7 +10,7 @@ import AuthGuard from './AuthGuard';
 import { ToastContainer } from './Toast';
 import GlobalSearch from './GlobalSearch';
 import { useStore, getProjectYear, getLatestYear, type StatusFilter, type YearFilter } from '@/store/useStore';
-import { PROJECT_TYPE_COLORS, PROJECT_TYPE_LABELS, type ProjectTypeFilter } from '@/types';
+import { PROJECT_TYPE_COLORS, PROJECT_TYPE_LABELS, type ProjectType, type ProjectTypeFilter } from '@/types';
 import { cn } from '@/lib/utils';
 import { Filter, Search, X, RotateCcw, Pencil, Check } from 'lucide-react';
 import { useMemo } from 'react';
@@ -151,6 +151,7 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
 function TopFilterBar() {
   const typeFilter = useStore((s) => s.typeFilter);
   const setTypeFilter = useStore((s) => s.setTypeFilter);
+  const toggleTypeFilter = useStore((s) => s.toggleTypeFilter);
   const statusFilter = useStore((s) => s.statusFilter);
   const setStatusFilter = useStore((s) => s.setStatusFilter);
   const yearFilter = useStore((s) => s.yearFilter);
@@ -174,7 +175,7 @@ function TopFilterBar() {
   const latestYear = useMemo(() => getLatestYear(allProjects), [allProjects]);
   const defaultYear: YearFilter = latestYear || 'all';
   const hasActiveFilter =
-    typeFilter !== 'all' ||
+    typeFilter.length > 0 ||
     statusFilter !== 'all' ||
     yearFilter !== defaultYear ||
     searchQuery.trim() !== '';
@@ -195,14 +196,15 @@ function TopFilterBar() {
         <span>กรอง</span>
       </div>
 
-      {/* Type pills */}
+      {/* Type pills — เลือกได้หลายหมวด (All = ล้างทั้งหมด) */}
       {typeOptions.map((opt) => {
-        const isActive = typeFilter === opt.value;
-        const colors = opt.value !== 'all' ? PROJECT_TYPE_COLORS[opt.value] : null;
+        const isAll = opt.value === 'all';
+        const isActive = isAll ? typeFilter.length === 0 : typeFilter.includes(opt.value as ProjectType);
+        const colors = !isAll ? PROJECT_TYPE_COLORS[opt.value as ProjectType] : null;
         return (
           <button
             key={opt.value}
-            onClick={() => setTypeFilter(opt.value)}
+            onClick={() => (isAll ? setTypeFilter([]) : toggleTypeFilter(opt.value as ProjectType))}
             className={cn(
               'px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all',
               isActive

@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   Project, Quotation, Activity, MemberId, PaymentInstallment, PaymentRecord,
   DistributionRecord, TrackingActivity, PoolTransaction, HORSE_PERCENT, POOL_PERCENT,
-  ProjectType, ProjectTypeFilter, ProjectStatus, MEMBERS, PROJECT_TYPE_LABELS,
+  ProjectType, ProjectStatus, MEMBERS, PROJECT_TYPE_LABELS,
 } from '@/types';
 
 export type StatusFilter = 'all' | ProjectStatus;
@@ -40,11 +40,12 @@ import { toast } from '@/components/Toast';
 
 interface AppState {
   // Filters
-  typeFilter: ProjectTypeFilter;
+  typeFilter: ProjectType[]; // เลือกได้หลายหมวด — ว่าง = แสดงทั้งหมด
   statusFilter: StatusFilter;
   yearFilter: YearFilter;
   searchQuery: string;
-  setTypeFilter: (f: ProjectTypeFilter) => void;
+  setTypeFilter: (types: ProjectType[]) => void;
+  toggleTypeFilter: (t: ProjectType) => void;
   setStatusFilter: (f: StatusFilter) => void;
   setYearFilter: (f: YearFilter) => void;
   setSearchQuery: (q: string) => void;
@@ -196,9 +197,10 @@ function matchesSearch(p: Project, q: string): boolean {
 }
 
 function recomputeFiltered(state: FilterableState) {
-  const { typeFilter, statusFilter, yearFilter, searchQuery } = state;
+  const { statusFilter, yearFilter, searchQuery } = state;
+  const typeFilter = Array.isArray(state.typeFilter) ? state.typeFilter : [];
   const q = (searchQuery || '').trim();
-  const allFiltersOff = typeFilter === 'all' && statusFilter === 'all' && yearFilter === 'all' && !q;
+  const allFiltersOff = typeFilter.length === 0 && statusFilter === 'all' && yearFilter === 'all' && !q;
   if (allFiltersOff) {
     return {
       projects: state._allProjects,
@@ -209,7 +211,7 @@ function recomputeFiltered(state: FilterableState) {
     };
   }
   const visibleProjects = state._allProjects.filter((p) => {
-    if (typeFilter !== 'all' && p.type !== typeFilter) return false;
+    if (typeFilter.length > 0 && !typeFilter.includes(p.type)) return false;
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     if (yearFilter !== 'all' && getProjectYear(p) !== yearFilter) return false;
     if (q && !matchesSearch(p, q)) return false;
@@ -274,12 +276,19 @@ function logErr(action: string, error: unknown) {
 export const useStore = create<AppState>()(persist(
   (set, get) => ({
   // Filters
-  typeFilter: 'all',
+  typeFilter: [],
   statusFilter: 'all',
   yearFilter: 'all',
   searchQuery: '',
-  setTypeFilter: (f) => {
-    set((state) => ({ typeFilter: f, ...recomputeFiltered({ ...state, typeFilter: f }) }));
+  setTypeFilter: (types) => {
+    set((state) => ({ typeFilter: types, ...recomputeFiltered({ ...state, typeFilter: types }) }));
+  },
+  toggleTypeFilter: (t) => {
+    set((state) => {
+      const cur = Array.isArray(state.typeFilter) ? state.typeFilter : [];
+      const next = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t];
+      return { typeFilter: next, ...recomputeFiltered({ ...state, typeFilter: next }) };
+    });
   },
   setStatusFilter: (f) => {
     set((state) => ({ statusFilter: f, ...recomputeFiltered({ ...state, statusFilter: f }) }));
@@ -294,7 +303,7 @@ export const useStore = create<AppState>()(persist(
     set((state) => {
       const latest = getLatestYear(state._allProjects);
       const next = {
-        typeFilter: 'all' as ProjectTypeFilter,
+        typeFilter: [] as ProjectType[],
         statusFilter: 'all' as StatusFilter,
         yearFilter: (latest || 'all') as YearFilter,
         searchQuery: '',
@@ -899,7 +908,7 @@ export const useStore = create<AppState>()(persist(
   },
 }), {
   name: 'research-mgmt-cache-v1',
-  version: 1,
+  version: 2, // v2: typeFilter เปลี่ยนจาก string → array (multi-select) — reset cache เก่า
   storage: createJSONStorage(() => localStorage),
   // Persist เฉพาะ raw data + filters — ไม่รวม derived views (recompute เอง) และ dataLoaded (บังคับ refetch)
   partialize: (state) => ({
