@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta } from '@/types';
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
-import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
 import { toast } from '@/components/Toast';
@@ -216,7 +216,7 @@ export default function ProjectsPage() {
   const hydrated = useHydrated();
   const {
     projects, addProject, updateProject, deleteProject,
-    addActivity, updateActivity, deleteActivity,
+    addActivity, updateActivity, deleteActivity, moveActivity,
     addInstallment, updateInstallment, deleteInstallment,
     payments, addPayment, updatePayment, deletePayment,
     distributions, addDistribution, deleteDistribution,
@@ -815,7 +815,7 @@ export default function ProjectsPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {project.activities.map((activity) => (
+                                {project.activities.map((activity, idx) => (
                                   <tr key={activity.id} className="border-b border-gray-100 last:border-0">
                                     <td className="py-2.5 text-gray-700">{activity.name}</td>
                                     <td className="py-2.5 text-right text-gray-700">{formatCurrency(activity.cost)}</td>
@@ -846,9 +846,11 @@ export default function ProjectsPage() {
                                     </td>
                                     <td className="py-2.5 text-right">
                                       {editMode ? (
-                                        <div className="flex items-center justify-end gap-1">
-                                          <button onClick={() => handleEditActivity(project.id, activity)} className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
-                                          <button onClick={() => { if (confirm('ลบกิจกรรมนี้?')) deleteActivity(project.id, activity.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+                                        <div className="flex items-center justify-end gap-0.5">
+                                          <button onClick={() => moveActivity(project.id, activity.id, 'up')} disabled={idx === 0} title="เลื่อนขึ้น" className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-400"><ChevronUp size={14} /></button>
+                                          <button onClick={() => moveActivity(project.id, activity.id, 'down')} disabled={idx === project.activities.length - 1} title="เลื่อนลง" className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-400"><ChevronDown size={14} /></button>
+                                          <button onClick={() => handleEditActivity(project.id, activity)} title="แก้ไข" className="p-1 text-gray-400 hover:text-gray-600"><Pencil size={13} /></button>
+                                          <button onClick={() => { if (confirm('ลบกิจกรรมนี้?')) deleteActivity(project.id, activity.id); }} title="ลบ" className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
                                         </div>
                                       ) : (
                                         <span className="text-gray-300">—</span>

@@ -88,6 +88,7 @@ interface AppState {
   addActivity: (projectId: string, activity: Omit<Activity, 'id'>) => void;
   updateActivity: (projectId: string, activityId: string, data: Partial<Activity>) => void;
   deleteActivity: (projectId: string, activityId: string) => void;
+  moveActivity: (projectId: string, activityId: string, direction: 'up' | 'down') => void;
 
   // Installments
   addInstallment: (projectId: string, installment: Omit<PaymentInstallment, 'id'>) => void;
@@ -641,6 +642,24 @@ export const useStore = create<AppState>()(persist(
     });
     const updated = get()._allProjects.find((p) => p.id === projectId);
     if (updated) supabase.from('projects').update({ activities: updated.activities }).eq('id', projectId).then(({ error }) => logErr('deleteActivity', error));
+  },
+
+  moveActivity: (projectId, activityId, direction) => {
+    set((state) => {
+      const _allProjects = state._allProjects.map((p) => {
+        if (p.id !== projectId) return p;
+        const acts = [...p.activities];
+        const i = acts.findIndex((a) => a.id === activityId);
+        if (i < 0) return p;
+        const j = direction === 'up' ? i - 1 : i + 1;
+        if (j < 0 || j >= acts.length) return p; // สุดขอบแล้ว
+        [acts[i], acts[j]] = [acts[j], acts[i]];
+        return { ...p, activities: acts };
+      });
+      return { _allProjects, ...recomputeFiltered({ ...state, _allProjects }) };
+    });
+    const updated = get()._allProjects.find((p) => p.id === projectId);
+    if (updated) supabase.from('projects').update({ activities: updated.activities }).eq('id', projectId).then(({ error }) => logErr('moveActivity', error));
   },
 
   // ============ Installments (JSONB) ============
