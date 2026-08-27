@@ -680,9 +680,24 @@ export default function ProjectsPage() {
                         <span>งบ: {formatCurrency(project.budget)}</span>
                         <span>ค่าใช้จ่าย: {formatCurrency(totalCost)}</span>
                         <span>รับแล้ว: {formatCurrency(paidAmount)}/{formatCurrency(totalInstallments)}</span>
-                        {(project.discount ?? 0) > 0 && (
+                        {editMode ? (
+                          <span className="inline-flex items-center gap-1 text-rose-600">
+                            ส่วนลด:
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={project.discount || ''}
+                              onChange={(e) => updateProject(project.id, { discount: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
+                              className="w-14 border border-rose-200 rounded px-1.5 py-0.5 text-xs text-right outline-none focus:ring-1 focus:ring-rose-400"
+                              placeholder="0"
+                            />
+                            %
+                            {(project.discount ?? 0) > 0 && <span className="text-rose-400">(สุทธิ {formatCurrency(totalCost * (1 - (project.discount ?? 0) / 100))})</span>}
+                          </span>
+                        ) : (project.discount ?? 0) > 0 ? (
                           <span className="text-rose-600">ส่วนลด: {project.discount}% (สุทธิ {formatCurrency(totalCost * (1 - (project.discount ?? 0) / 100))})</span>
-                        )}
+                        ) : null}
                       </div>
                       <div className="mt-3 flex items-center gap-2">
                         <div className="flex-1 bg-gray-100 rounded-full h-1.5"><div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${progress}%` }} /></div>

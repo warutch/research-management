@@ -33,25 +33,38 @@ export async function generateQuotationPdf(quotation: Quotation) {
   const setNormal = () => doc.setFont(fontName, 'normal');
   const setBold = () => doc.setFont(fontName, 'bold');
 
+  // สีให้ตรงกับ preview (HTML)
+  const C_DARK: [number, number, number] = [31, 41, 55];      // gray-800 — ข้อความหลัก
+  const C_MUTED: [number, number, number] = [107, 114, 128];  // gray-500 — ข้อความรอง
+  const C_INDIGO: [number, number, number] = [79, 70, 229];   // indigo-600 — accent / Total
+  const C_ROSE: [number, number, number] = [225, 29, 72];     // rose-600 — ส่วนลด / disclaimer
+  const color = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+
   // Header
   doc.setFontSize(22);
   setBold();
+  color(C_DARK);
   doc.text('ใบเสนอราคา / Quotation', pageWidth / 2, 25, { align: 'center' });
   doc.setFontSize(12);
   setNormal();
+  color(C_MUTED);
   doc.text('Research Management Services', pageWidth / 2, 33, { align: 'center' });
 
   // Quotation info
   doc.setFontSize(11);
+  color(C_MUTED);
   doc.text(`เลขที่: ${quotation.quotationNumber}`, 15, 48);
   doc.text(`วันที่: ${quotation.date}`, 15, 55);
   doc.text(`ใช้ได้ถึง: ${quotation.validUntil}`, 15, 62);
 
   // Client info
+  color(C_MUTED);
   doc.text('เรียน:', pageWidth - 85, 48);
   setBold();
+  color(C_DARK);
   doc.text(quotation.clientName || '-', pageWidth - 85, 55);
   setNormal();
+  color(C_MUTED);
   if (quotation.clientAddress) {
     const addressLines = doc.splitTextToSize(quotation.clientAddress, 70);
     doc.text(addressLines, pageWidth - 85, 62);
@@ -85,8 +98,8 @@ export async function generateQuotationPdf(quotation: Quotation) {
     body: tableData,
     theme: 'grid',
     styles: { font: fontName, fontSize: 11 },
-    headStyles: { fillColor: [79, 70, 229], fontSize: 11, font: fontName, fontStyle: 'bold', halign: 'center' },
-    bodyStyles: { fontSize: 11, font: fontName },
+    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: 11, font: fontName, fontStyle: 'bold', halign: 'center' },
+    bodyStyles: { fontSize: 11, font: fontName, textColor: [31, 41, 55] },
     columnStyles: {
       0: { halign: 'center', cellWidth: 12 },
       1: { cellWidth: 'auto' },
@@ -103,10 +116,13 @@ export async function generateQuotationPdf(quotation: Quotation) {
   const summaryX = pageWidth - 85;
   doc.setFontSize(11);
   setNormal();
+  color(C_MUTED);
   doc.text('รวม:', summaryX, finalY);
+  color(C_DARK);
   doc.text(`${fmtNum(subtotal)} บาท`, pageWidth - 15, finalY, { align: 'right' });
 
   if (quotation.discount > 0) {
+    color(C_ROSE);
     doc.text(`ส่วนลด (${quotation.discount}%):`, summaryX, finalY + 7);
     doc.text(`-${fmtNum(discountAmount)} บาท`, pageWidth - 15, finalY + 7, { align: 'right' });
   }
@@ -117,16 +133,21 @@ export async function generateQuotationPdf(quotation: Quotation) {
   doc.line(summaryX, totalY - 3, pageWidth - 15, totalY - 3);
   doc.setFontSize(14);
   setBold();
+  color(C_DARK);
   doc.text('รวมสุทธิ:', summaryX, totalY + 4);
+  color(C_INDIGO);
   doc.text(`${fmtNum(total)} บาท`, pageWidth - 15, totalY + 4, { align: 'right' });
 
   // Notes
   if (quotation.notes) {
     doc.setFontSize(11);
     setNormal();
+    color(C_DARK);
     doc.text('หมายเหตุ:', 15, totalY + 20);
     const noteLines = quotation.notes.split('\n');
     noteLines.forEach((line, i) => {
+      // บรรทัดที่ขึ้นต้นด้วย * (disclaimer) → แดงเหมือน preview
+      color(line.trim().startsWith('*') ? C_ROSE : C_MUTED);
       doc.text(line, 15, totalY + 27 + i * 6);
     });
   }
@@ -138,6 +159,7 @@ export async function generateQuotationPdf(quotation: Quotation) {
   doc.line(15, footerY, pageWidth - 15, footerY);
   doc.setFontSize(10);
   setNormal();
+  color(C_MUTED);
   doc.text('ขอบคุณที่ไว้วางใจ', pageWidth / 2, footerY + 8, { align: 'center' });
 
   doc.save(`${quotation.quotationNumber}.pdf`);
