@@ -119,6 +119,7 @@ export interface Project {
   createdAt: string;
   type: ProjectType; // 'doctor' | 'student'
   commission?: number; // ค่า commission รายโครงการ (one-time) — default 0; Student default 1000
+  discount?: number; // ส่วนลด % ของโครงการ — ใช้ต่อในใบเสนอราคา (default 0)
 }
 
 // Helper: ดึงค่า commission ของโครงการ (fallback 0)

@@ -74,6 +74,7 @@ export default function QuotationsPage() {
       clientName: project.client,
       items: items.length > 0 ? items : [emptyItem()],
       notes: instNotes,
+      discount: project.discount ?? 0, // ดึงส่วนลดจากโครงการ
     });
   };
 

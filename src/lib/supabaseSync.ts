@@ -44,6 +44,24 @@ export function isCommissionMissingError(e: unknown): boolean {
   return /commission/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
 }
 
+// เช่นเดียวกับ commission — กัน error ถ้า DB ยังไม่มี column 'discount' บน projects
+let discountColumnMissing = false;
+export function markDiscountColumnMissing() {
+  if (!discountColumnMissing) {
+    discountColumnMissing = true;
+    console.warn(
+      '[supabaseSync] DB projects.discount column not found — ปิดการ sync discount field\n' +
+      'กรุณารัน migration supabase/add_project_discount.sql เพื่อเปิดใช้ส่วนลดของโครงการ'
+    );
+  }
+}
+export function isDiscountMissingError(e: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = e as any;
+  const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
+  return /discount/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+}
+
 // Detect: relation/table does not exist (PostgreSQL 42P01 / PostgREST PGRST205/PGRST202)
 // เช่น ยังไม่ได้รัน migration สำหรับ pool_transactions
 export function isTableMissingError(e: unknown, tableName?: string): boolean {
@@ -85,6 +103,7 @@ export function projectToDb(p: Project): any {
   // ส่ง workspace เฉพาะถ้า DB มี column นี้ (ไม่งั้น PGRST204)
   if (!workspaceColumnMissing) base.workspace = p.type;
   if (!commissionColumnMissing) base.commission = p.commission ?? 0;
+  if (!discountColumnMissing) base.discount = p.discount ?? 0;
   return base;
 }
 
@@ -104,6 +123,7 @@ export function projectFromDb(row: any): Project {
     createdAt: row.created_at || new Date().toISOString(),
     type: normalizeProjectType(row.workspace),
     commission: row.commission == null ? 0 : Number(row.commission) || 0,
+    discount: row.discount == null ? 0 : Number(row.discount) || 0,
   };
 }
 

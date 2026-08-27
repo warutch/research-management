@@ -258,7 +258,7 @@ export default function ProjectsPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0 });
+  const [form, setForm] = useState<ProjectForm>({ projectCode: '', name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0, discount: 0 });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(sortedProjects[0]?.id || null);
   const [activeTab, setActiveTab] = useState<'activities' | 'installments' | 'payments' | 'distribution'>('activities');
 
@@ -309,7 +309,7 @@ export default function ProjectsPage() {
   };
 
   const openNewProjectForm = () => {
-    setForm({ projectCode: generateProjectCode(projects), name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0 });
+    setForm({ projectCode: generateProjectCode(projects), name: '', client: '', budget: 0, startDate: '', endDate: '', status: 'pending', type: 'doctor', commission: 0, discount: 0 });
     setEditingId(null);
     setShowForm(true);
   };
@@ -347,7 +347,7 @@ export default function ProjectsPage() {
   };
 
   const handleEditProject = (project: Project) => {
-    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0 });
+    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0, discount: project.discount ?? 0 });
     setEditingId(project.id);
     setShowForm(true);
   };
@@ -604,6 +604,20 @@ export default function ProjectsPage() {
                   <p className="text-xs text-gray-400 mt-1">หักรายโครงการ (one-time) — จ่ายให้ผู้รับ &quot;Commission&quot; ในหน้าโอนตัง</p>
                 </div>
               )}
+              {/* Discount (%) — ส่วนลดของโครงการ ใช้ต่อในใบเสนอราคา */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ส่วนลด (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.discount || ''}
+                  onChange={(e) => setForm({ ...form, discount: Number(e.target.value) || 0 })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="0"
+                />
+                <p className="text-xs text-gray-400 mt-1">ส่วนลดเป็น % ของยอดรวม — ดึงไปใส่ในใบเสนอราคาอัตโนมัติ</p>
+              </div>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t">
               <button onClick={() => { setShowForm(false); setEditingId(null); }} className="px-4 py-2 text-sm text-gray-600">ยกเลิก</button>
@@ -666,6 +680,9 @@ export default function ProjectsPage() {
                         <span>งบ: {formatCurrency(project.budget)}</span>
                         <span>ค่าใช้จ่าย: {formatCurrency(totalCost)}</span>
                         <span>รับแล้ว: {formatCurrency(paidAmount)}/{formatCurrency(totalInstallments)}</span>
+                        {(project.discount ?? 0) > 0 && (
+                          <span className="text-rose-600">ส่วนลด: {project.discount}% (สุทธิ {formatCurrency(totalCost * (1 - (project.discount ?? 0) / 100))})</span>
+                        )}
                       </div>
                       <div className="mt-3 flex items-center gap-2">
                         <div className="flex-1 bg-gray-100 rounded-full h-1.5"><div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${progress}%` }} /></div>

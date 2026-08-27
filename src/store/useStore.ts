@@ -27,6 +27,7 @@ import {
   PAYMENT_LIST_COLUMNS, DISTRIBUTION_LIST_COLUMNS, POOL_TX_LIST_COLUMNS,
   markWorkspaceColumnMissing, isWorkspaceMissingError,
   markCommissionColumnMissing, isCommissionMissingError,
+  markDiscountColumnMissing, isDiscountMissingError,
   isTableMissingError,
 } from '@/lib/supabaseSync';
 import { toast } from '@/components/Toast';
@@ -566,6 +567,11 @@ export const useStore = create<AppState>()(persist(
         supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry commission)', e2));
         return;
       }
+      if (error && isDiscountMissingError(error)) {
+        markDiscountColumnMissing();
+        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry discount)', e2));
+        return;
+      }
       logErr('addProject', error);
     });
     return id;
@@ -587,6 +593,11 @@ export const useStore = create<AppState>()(persist(
       if (error && isCommissionMissingError(error)) {
         markCommissionColumnMissing();
         supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry commission)', e2));
+        return;
+      }
+      if (error && isDiscountMissingError(error)) {
+        markDiscountColumnMissing();
+        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry discount)', e2));
         return;
       }
       logErr('updateProject', error);
