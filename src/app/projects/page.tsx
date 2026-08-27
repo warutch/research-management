@@ -742,11 +742,16 @@ export default function ProjectsPage() {
                                 <div>
                                   <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อกิจกรรม *</label>
                                   <div className="flex gap-2">
-                                    <select value={STANDARD_ACTIVITIES.includes(activityForm.name as typeof STANDARD_ACTIVITIES[number]) ? activityForm.name : '__custom__'} onChange={(e) => { if (e.target.value !== '__custom__') setActivityForm({ ...activityForm, name: e.target.value }); }} className="border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500">
+                                    <select
+                                      value={STANDARD_ACTIVITIES.includes(activityForm.name as typeof STANDARD_ACTIVITIES[number]) ? activityForm.name : '__custom__'}
+                                      onChange={(e) => { if (e.target.value !== '__custom__') setActivityForm({ ...activityForm, name: e.target.value }); }}
+                                      title="เลือกจาก template หรือพิมพ์เองในช่องข้าง ๆ"
+                                      className="w-32 shrink-0 border rounded-lg px-2 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                                    >
                                       {STANDARD_ACTIVITIES.map((act) => <option key={act} value={act}>{act}</option>)}
-                                      <option value="__custom__">อื่นๆ</option>
+                                      <option value="__custom__">อื่นๆ / พิมพ์เอง</option>
                                     </select>
-                                    <input type="text" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} className="flex-1 border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500" placeholder="ชื่อกิจกรรม" />
+                                    <input type="text" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} className="flex-1 min-w-0 border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500" placeholder="พิมพ์ชื่อกิจกรรม..." />
                                   </div>
                                 </div>
                                 <div>
