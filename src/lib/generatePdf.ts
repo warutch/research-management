@@ -1,170 +1,132 @@
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { Quotation } from '@/types';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
-async function loadFont(doc: jsPDF) {
-  try {
-    const res = await fetch('https://cdn.jsdelivr.net/gh/nicksrg/jsPDF-CustomFonts-support@master/dist/default_vfs.js');
-    if (!res.ok) throw new Error('font CDN fail');
-  } catch {
-    // fallback: no custom font
-  }
-  // Use Sarabun from local file
-  const { THSarabunNew, THSarabunNewBold } = await import('./thaiFont');
-  doc.addFileToVFS('Sarabun-Regular.ttf', THSarabunNew);
-  doc.addFont('Sarabun-Regular.ttf', 'Sarabun', 'normal');
-  doc.addFileToVFS('Sarabun-Bold.ttf', THSarabunNewBold);
-  doc.addFont('Sarabun-Bold.ttf', 'Sarabun', 'bold');
-  doc.setFont('Sarabun');
+// escape ข้อความจาก user กัน HTML injection ตอนสร้าง template
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+}
+
+// สี (hex ล้วน — ตรงกับ preview และเลี่ยง oklch ของ Tailwind ที่ html2canvas 1.4.1 ไม่รองรับ)
+const DARK = '#111827';   // gray-900
+const MUTED = '#6b7280';  // gray-500
+const NOTE = '#4b5563';   // gray-600
+const INDIGO = '#4f46e5'; // indigo-600
+const RED = '#dc2626';    // red-600
+const BORDER = '#e5e7eb'; // gray-200
+
+// สร้าง HTML ของใบเสนอราคา (ดีไซน์เดียวกับ preview) ด้วย inline style ทั้งหมด
+function buildQuotationHtml(q: Quotation): string {
+  const subtotal = q.items.reduce((s, it) => s + it.amount, 0);
+  const discountAmt = (subtotal * (q.discount || 0)) / 100;
+  const total = subtotal - discountAmt;
+
+  const rows = q.items.map((it, i) => `
+    <tr style="border-bottom:1px solid ${BORDER}; color:${DARK};">
+      <td style="padding:8px 12px;">${i + 1}</td>
+      <td style="padding:8px 12px;">${esc(it.description)}</td>
+      <td style="padding:8px 12px; text-align:center;">${esc(it.quantity)}</td>
+      <td style="padding:8px 12px; text-align:center;">${esc(it.unit)}</td>
+      <td style="padding:8px 12px; text-align:right;">${esc(formatCurrency(it.unitPrice))}</td>
+      <td style="padding:8px 12px; text-align:right;">${esc(formatCurrency(it.amount))}</td>
+    </tr>`).join('');
+
+  const discountRow = (q.discount || 0) > 0
+    ? `<div style="display:flex; justify-content:space-between; padding:2px 0; color:${RED};">
+         <span>Discount (${esc(q.discount)}%)</span><span>-${esc(formatCurrency(discountAmt))}</span>
+       </div>`
+    : '';
+
+  const notesHtml = q.notes
+    ? `<div style="margin-top:16px; font-size:13px; color:${NOTE}; line-height:1.7;">
+         <div style="font-weight:500;">หมายเหตุ:</div>
+         ${q.notes.split('\n').map((line) =>
+           `<div style="${line.trim().startsWith('*') ? `color:${RED}; font-weight:500;` : ''}">${esc(line)}</div>`).join('')}
+       </div>`
+    : '';
+
+  return `
+    <div style="text-align:center; margin-bottom:24px;">
+      <div style="font-size:26px; font-weight:700; color:${DARK}; letter-spacing:0.5px;">QUOTATION</div>
+      <div style="font-size:13px; color:${MUTED};">Research Management Services</div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:24px; font-size:13px; line-height:1.6;">
+      <div style="color:${MUTED};">
+        <div>No: ${esc(q.quotationNumber)}</div>
+        <div>Date: ${esc(formatDate(q.date))}</div>
+        <div>Valid: ${esc(formatDate(q.validUntil))}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="color:${DARK}; font-weight:500;">${esc(q.clientName || '-')}</div>
+        ${q.clientAddress ? `<div style="color:${MUTED};">${esc(q.clientAddress)}</div>` : ''}
+        ${q.clientPhone ? `<div style="color:${MUTED};">Tel: ${esc(q.clientPhone)}</div>` : ''}
+      </div>
+    </div>
+    <table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:16px;">
+      <thead>
+        <tr style="background:${INDIGO}; color:#ffffff;">
+          <th style="padding:8px 12px; text-align:left;">#</th>
+          <th style="padding:8px 12px; text-align:left;">Description</th>
+          <th style="padding:8px 12px; text-align:center;">Qty</th>
+          <th style="padding:8px 12px; text-align:center;">Unit</th>
+          <th style="padding:8px 12px; text-align:right;">Price</th>
+          <th style="padding:8px 12px; text-align:right;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="display:flex; justify-content:flex-end;">
+      <div style="width:240px; font-size:13px; color:${DARK};">
+        <div style="display:flex; justify-content:space-between; padding:2px 0;">
+          <span>Subtotal</span><span>${esc(formatCurrency(subtotal))}</span>
+        </div>
+        ${discountRow}
+        <div style="display:flex; justify-content:space-between; font-weight:700; font-size:16px; border-top:1px solid ${BORDER}; padding-top:6px; margin-top:2px;">
+          <span>Total</span><span style="color:${INDIGO};">${esc(formatCurrency(total))}</span>
+        </div>
+      </div>
+    </div>
+    ${notesHtml}`;
 }
 
 export async function generateQuotationPdf(quotation: Quotation) {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
+  // html2canvas ต้องรันฝั่ง client (ใช้ document) — dynamic import กัน SSR
+  const html2canvas = (await import('html2canvas')).default;
 
-  let fontName = 'helvetica';
+  const container = document.createElement('div');
+  container.setAttribute('style',
+    "position:fixed; left:-10000px; top:0; width:760px; padding:40px; box-sizing:border-box; " +
+    "background:#ffffff; color:" + DARK + "; font-family:'Sarabun','Noto Sans Thai',sans-serif;");
+  container.innerHTML = buildQuotationHtml(quotation);
+  document.body.appendChild(container);
+
   try {
-    await loadFont(doc);
-    fontName = 'Sarabun';
-  } catch {
-    // fallback to helvetica
+    // รอ font โหลดเสร็จ เพื่อให้ภาษาไทย shape ถูกต้อง
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      try { await document.fonts.ready; } catch { /* ignore */ }
+    }
+    const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+    const imgData = canvas.toDataURL('image/png');
+
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const imgH = (canvas.height * pageW) / canvas.width;
+
+    // แบ่งหลายหน้าถ้าเนื้อหายาวเกิน 1 หน้า A4
+    let heightLeft = imgH;
+    let position = 0;
+    pdf.addImage(imgData, 'PNG', 0, position, pageW, imgH);
+    heightLeft -= pageH;
+    while (heightLeft > 0) {
+      position -= pageH;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, position, pageW, imgH);
+      heightLeft -= pageH;
+    }
+    pdf.save(`${quotation.quotationNumber}.pdf`);
+  } finally {
+    document.body.removeChild(container);
   }
-
-  const setNormal = () => doc.setFont(fontName, 'normal');
-  const setBold = () => doc.setFont(fontName, 'bold');
-
-  // สีให้ตรงกับ preview (HTML)
-  const C_DARK: [number, number, number] = [31, 41, 55];      // gray-800 — ข้อความหลัก
-  const C_MUTED: [number, number, number] = [107, 114, 128];  // gray-500 — ข้อความรอง
-  const C_INDIGO: [number, number, number] = [79, 70, 229];   // indigo-600 — accent / Total
-  const C_ROSE: [number, number, number] = [225, 29, 72];     // rose-600 — ส่วนลด / disclaimer
-  const color = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
-
-  // Header
-  doc.setFontSize(22);
-  setBold();
-  color(C_DARK);
-  doc.text('ใบเสนอราคา / Quotation', pageWidth / 2, 25, { align: 'center' });
-  doc.setFontSize(12);
-  setNormal();
-  color(C_MUTED);
-  doc.text('Research Management Services', pageWidth / 2, 33, { align: 'center' });
-
-  // Quotation info
-  doc.setFontSize(11);
-  color(C_MUTED);
-  doc.text(`เลขที่: ${quotation.quotationNumber}`, 15, 48);
-  doc.text(`วันที่: ${quotation.date}`, 15, 55);
-  doc.text(`ใช้ได้ถึง: ${quotation.validUntil}`, 15, 62);
-
-  // Client info
-  color(C_MUTED);
-  doc.text('เรียน:', pageWidth - 85, 48);
-  setBold();
-  color(C_DARK);
-  doc.text(quotation.clientName || '-', pageWidth - 85, 55);
-  setNormal();
-  color(C_MUTED);
-  if (quotation.clientAddress) {
-    const addressLines = doc.splitTextToSize(quotation.clientAddress, 70);
-    doc.text(addressLines, pageWidth - 85, 62);
-  }
-  if (quotation.clientPhone) {
-    doc.text(`โทร: ${quotation.clientPhone}`, pageWidth - 85, quotation.clientAddress ? 72 : 62);
-  }
-
-  // Line
-  doc.setDrawColor(79, 70, 229);
-  doc.setLineWidth(0.5);
-  doc.line(15, 75, pageWidth - 15, 75);
-
-  // Items table
-  const tableData = quotation.items.map((item, index) => [
-    (index + 1).toString(),
-    item.description,
-    item.quantity.toString(),
-    item.unit,
-    fmtNum(item.unitPrice),
-    fmtNum(item.amount),
-  ]);
-
-  const subtotal = quotation.items.reduce((sum, item) => sum + item.amount, 0);
-  const discountAmount = (subtotal * quotation.discount) / 100;
-  const total = subtotal - discountAmount;
-
-  autoTable(doc, {
-    startY: 80,
-    head: [['#', 'รายการ', 'จำนวน', 'หน่วย', 'ราคา/หน่วย', 'รวม']],
-    body: tableData,
-    theme: 'grid',
-    styles: { font: fontName, fontSize: 11 },
-    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: 11, font: fontName, fontStyle: 'bold', halign: 'center' },
-    bodyStyles: { fontSize: 11, font: fontName, textColor: [31, 41, 55] },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 12 },
-      1: { cellWidth: 'auto' },
-      2: { halign: 'center', cellWidth: 18 },
-      3: { halign: 'center', cellWidth: 22 },
-      4: { halign: 'right', cellWidth: 30 },
-      5: { halign: 'right', cellWidth: 30 },
-    },
-    margin: { left: 15, right: 15 },
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const finalY = (doc as any).lastAutoTable.finalY + 10;
-  const summaryX = pageWidth - 85;
-  doc.setFontSize(11);
-  setNormal();
-  color(C_MUTED);
-  doc.text('รวม:', summaryX, finalY);
-  color(C_DARK);
-  doc.text(`${fmtNum(subtotal)} บาท`, pageWidth - 15, finalY, { align: 'right' });
-
-  if (quotation.discount > 0) {
-    color(C_ROSE);
-    doc.text(`ส่วนลด (${quotation.discount}%):`, summaryX, finalY + 7);
-    doc.text(`-${fmtNum(discountAmount)} บาท`, pageWidth - 15, finalY + 7, { align: 'right' });
-  }
-
-  const totalY = quotation.discount > 0 ? finalY + 18 : finalY + 11;
-  doc.setDrawColor(79, 70, 229);
-  doc.setLineWidth(0.5);
-  doc.line(summaryX, totalY - 3, pageWidth - 15, totalY - 3);
-  doc.setFontSize(14);
-  setBold();
-  color(C_DARK);
-  doc.text('รวมสุทธิ:', summaryX, totalY + 4);
-  color(C_INDIGO);
-  doc.text(`${fmtNum(total)} บาท`, pageWidth - 15, totalY + 4, { align: 'right' });
-
-  // Notes
-  if (quotation.notes) {
-    doc.setFontSize(11);
-    setNormal();
-    color(C_DARK);
-    doc.text('หมายเหตุ:', 15, totalY + 20);
-    const noteLines = quotation.notes.split('\n');
-    noteLines.forEach((line, i) => {
-      // บรรทัดที่ขึ้นต้นด้วย * (disclaimer) → แดงเหมือน preview
-      color(line.trim().startsWith('*') ? C_ROSE : C_MUTED);
-      doc.text(line, 15, totalY + 27 + i * 6);
-    });
-  }
-
-  // Footer
-  const footerY = doc.internal.pageSize.getHeight() - 30;
-  doc.setDrawColor(200);
-  doc.setLineWidth(0.3);
-  doc.line(15, footerY, pageWidth - 15, footerY);
-  doc.setFontSize(10);
-  setNormal();
-  color(C_MUTED);
-  doc.text('ขอบคุณที่ไว้วางใจ', pageWidth / 2, footerY + 8, { align: 'center' });
-
-  doc.save(`${quotation.quotationNumber}.pdf`);
-}
-
-function fmtNum(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
