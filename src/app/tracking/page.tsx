@@ -56,6 +56,7 @@ export default function TrackingPage() {
   };
 
   const handleDateClick = (date: Date) => {
+    if (!editMode) return; // read mode → คลิกวันที่ไม่เปิดฟอร์มเพิ่ม
     setEditingActivity(null);
     setDefaultDate(date);
     setModalOpen(true);
@@ -98,12 +99,14 @@ export default function TrackingPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
+        {editMode && (
         <button
           onClick={handleAdd}
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-cyan-700 hover:to-blue-700 shadow transition-all"
         >
           <Plus size={16} /> เพิ่ม Activity
         </button>
+        )}
       </div>
 
       {/* Stats */}

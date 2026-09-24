@@ -316,7 +316,7 @@ export default function QuotationsPage() {
                   <div className="flex justify-between font-bold text-lg border-t pt-2">
                     <span>รวมสุทธิ</span>
                     <span className="text-indigo-600">
-                      {formatCurrency(getSubtotal(form.items) * (1 - form.discount / 100))}
+                      {formatCurrency(getSubtotal(form.items) * (1 - (form.discount || 0) / 100))}
                     </span>
                   </div>
                 </div>
@@ -413,7 +413,7 @@ export default function QuotationsPage() {
                   <div className="flex justify-between font-bold text-lg border-t pt-1">
                     <span>Total</span>
                     <span className="text-indigo-600">
-                      {formatCurrency(getSubtotal(previewQuotation.items) * (1 - previewQuotation.discount / 100))}
+                      {formatCurrency(getSubtotal(previewQuotation.items) * (1 - (previewQuotation.discount || 0) / 100))}
                     </span>
                   </div>
                 </div>
@@ -422,7 +422,7 @@ export default function QuotationsPage() {
                 <div className="mt-4 text-sm text-gray-600">
                   <p className="font-medium">หมายเหตุ:</p>
                   {previewQuotation.notes.split('\n').map((line, i) => (
-                    <p key={i} className={line.startsWith('*') ? 'text-red-600 font-medium' : ''}>{line}</p>
+                    <p key={i} className={line.trim().startsWith('*') ? 'text-red-600 font-medium' : ''}>{line}</p>
                   ))}
                 </div>
               )}
@@ -466,7 +466,7 @@ export default function QuotationsPage() {
               <tbody>
                 {[...quotations].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((q) => {
                   const subtotal = getSubtotal(q.items);
-                  const total = subtotal * (1 - q.discount / 100);
+                  const total = subtotal * (1 - (q.discount || 0) / 100);
                   const projectName = projects.find((p) => p.id === q.projectId)?.name;
                   return (
                     <tr key={q.id} className="border-b border-gray-50 hover:bg-indigo-50/30 transition-colors">

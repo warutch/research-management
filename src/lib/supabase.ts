@@ -13,6 +13,8 @@ export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 // refresh_token. Clean it pre-emptively so the client starts fresh.
 if (typeof window !== 'undefined' && isSupabaseConfigured) {
   try {
+    // เก็บ key ที่ต้องลบไว้ก่อน แล้วค่อยลบ (กัน index เลื่อนตอนวนลูป)
+    const toRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key || !key.startsWith('sb-') || !key.endsWith('-auth-token')) continue;
@@ -20,17 +22,15 @@ if (typeof window !== 'undefined' && isSupabaseConfigured) {
       if (!raw) continue;
       try {
         const parsed = JSON.parse(raw);
-        const rt = parsed?.refresh_token;
-        const expiresAt = typeof parsed?.expires_at === 'number' ? parsed.expires_at : 0;
-        const nowSec = Math.floor(Date.now() / 1000);
-        // ลบถ้า: ไม่มี refresh_token, หรือ refresh token หมดอายุนานแล้ว (>7 วัน)
-        if (!rt || (expiresAt > 0 && nowSec - expiresAt > 60 * 60 * 24 * 7)) {
-          localStorage.removeItem(key);
-        }
+        // ลบเฉพาะเมื่อ "ไม่มี refresh_token" เท่านั้น (token ที่ refresh ไม่ได้)
+        // ห้ามใช้ expires_at (นั่นคืออายุ access-token ~1ชม. ไม่ใช่ refresh-token)
+        // — session ที่ทิ้งไว้นานยัง refresh ได้ ถ้ายังมี refresh_token
+        if (!parsed?.refresh_token) toRemove.push(key);
       } catch {
-        localStorage.removeItem(key);
+        toRemove.push(key); // parse ไม่ได้ = เสีย ลบทิ้ง
       }
     }
+    toRemove.forEach((k) => localStorage.removeItem(k));
   } catch {
     // localStorage อาจไม่พร้อม / private mode
   }

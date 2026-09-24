@@ -227,16 +227,24 @@ export default function PoolPage() {
     return getPoolTxSignedAmount(it.tx);
   };
 
-  // Running balance สำหรับแสดงข้างขวาของแต่ละแถว
+  // Running balance ของแต่ละแถว — ต้องคำนวณจากลำดับ "ทั้งหมด" (ไม่ใช่เฉพาะที่กรอง)
+  // ไม่งั้นเมื่อกรอง balanceAfter จะเพี้ยน (ข้ามธุรกรรมที่ถูกซ่อน)
   const filteredWithBalance = useMemo(() => {
-    const rows: Array<{ item: ListItem; balanceAfter: number }> = [];
+    const keyOf = (it: ListItem) => (it.kind === 'from_project' ? `d-${it.dist.id}` : `t-${it.tx.id}`);
+    const allSorted = [...allItems].sort((a, b) => {
+      const byDate = (b.date || '').localeCompare(a.date || '');
+      if (byDate !== 0) return byDate;
+      return getItemCreatedAt(b).localeCompare(getItemCreatedAt(a));
+    });
+    const balanceByKey = new Map<string, number>();
     let running = balance;
-    for (const item of filtered) {
-      rows.push({ item, balanceAfter: running });
+    for (const item of allSorted) {
+      balanceByKey.set(keyOf(item), running);
       running -= getItemSignedAmount(item);
     }
-    return rows;
-  }, [filtered, balance]);
+    return filtered.map((item) => ({ item, balanceAfter: balanceByKey.get(keyOf(item)) ?? 0 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems, filtered, balance]);
 
   if (!hydrated) return <div className="flex items-center justify-center h-64 text-gray-400">กำลังโหลด...</div>;
 

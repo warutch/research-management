@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, RecipientId, ALL_SHARE_NAMES, getCommission, calcMemberNetIncome, calcHorseNetIncome, calcPoolNetIncome, calcRoundedShares, calcRoundedExpected } from '@/types';
+import { MEMBERS, RecipientId, ALL_SHARE_NAMES, calcRoundedShares, calcRoundedExpected } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from '@/components/Toast';
@@ -155,19 +155,19 @@ export default function IncomePage() {
     return { expected, actual, shouldPay, outstandingPayable };
   };
 
-  // Manager + Pool — raw เต็ม (ไม่โดน commission), shouldPay rounded
-  const horseStats = computeRecipientStats((rs) => rs.horse, 'horse', calcHorseNetIncome);
+  // Manager + Pool — ใช้ calcRoundedExpected (หักค่าดำเนินการแล้ว) ให้ตรงกับ shouldPay + แท็บโครงการ
+  const horseStats = computeRecipientStats((rs) => rs.horse, 'horse', (p) => calcRoundedExpected(p).horse);
   const horseExpected = horseStats.expected;
   const horseActual = horseStats.actual;
   const horseOutstandingPayable = horseStats.outstandingPayable;
 
-  const poolStats = computeRecipientStats((rs) => rs.pool, 'pool', calcPoolNetIncome);
+  const poolStats = computeRecipientStats((rs) => rs.pool, 'pool', (p) => calcRoundedExpected(p).pool);
   const poolExpected = poolStats.expected;
   const poolActual = poolStats.actual;
   const poolOutstandingPayable = poolStats.outstandingPayable;
 
-  // Commission — paid FIRST (capped, rounded)
-  const commissionStats = computeRecipientStats((rs) => rs.commission, 'commission', getCommission);
+  // Commission — expected = ยอดที่เก็บได้จริง (หักค่าดำเนินการแล้ว) ไม่ใช่ค่าเต็ม
+  const commissionStats = computeRecipientStats((rs) => rs.commission, 'commission', (p) => calcRoundedExpected(p).commission);
   const commissionExpected = commissionStats.expected;
   const commissionActual = commissionStats.actual;
   const commissionOutstandingPayable = commissionStats.outstandingPayable;
@@ -489,12 +489,12 @@ export default function IncomePage() {
       {/* Manager Breakdown */}
       {(() => {
         const horseBreakdown = filteredProjects.map((project) => {
-          const expected = calcHorseNetIncome(project);
+          const rExp = calcRoundedExpected(project);
+          const expected = rExp.horse + rExp.reimburse.horse; // หักค่าดำเนินการ + รวมจ่ายคืน
           const actual = distributions.filter((d) => d.recipientId === 'horse' && d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
-          const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-          const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
-          const shouldPay = expected * paidRatio;
+          const rNow = calcRoundedShares(project, clientPaid);
+          const shouldPay = rNow.horse + rNow.reimburse.horse;
           const diff = shouldPay - actual;
           const outstanding = Math.max(0, diff);
           const overpaid = Math.max(0, -diff);
@@ -566,12 +566,12 @@ export default function IncomePage() {
       {/* Pool money Breakdown */}
       {(() => {
         const poolBreakdown = filteredProjects.map((project) => {
-          const expected = calcPoolNetIncome(project);
+          const rExp = calcRoundedExpected(project);
+          const expected = rExp.pool + rExp.reimburse.pool;
           const actual = distributions.filter((d) => d.recipientId === 'pool' && d.projectId === project.id).reduce((s, d) => s + d.amount, 0);
-          const projectGrandTotal = project.activities.reduce((s, a) => s + a.cost, 0);
           const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-          const paidRatio = projectGrandTotal > 0 ? clientPaid / projectGrandTotal : 0;
-          const shouldPay = expected * paidRatio;
+          const rNow = calcRoundedShares(project, clientPaid);
+          const shouldPay = rNow.pool + rNow.reimburse.pool;
           const diff = shouldPay - actual;
           const outstanding = Math.max(0, diff);
           const overpaid = Math.max(0, -diff);

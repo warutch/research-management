@@ -301,7 +301,8 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   //    แบ่งตามสัดส่วนเงินที่แต่ละคนออกไป (จำนวนเต็ม, คนสุดท้ายดูดเศษ)
   const expenses = project.expenses || [];
   const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const reimbursedTotal = Math.round(Math.min(totalExpenses, cappedPaid));
+  // reimbursedTotal ต้องไม่เกิน cappedPaid (กัน overshoot กรณี cost เศษทศนิยม)
+  const reimbursedTotal = Math.min(Math.round(totalExpenses), Math.round(cappedPaid));
   const reimburse = emptyReimburse();
   if (totalExpenses > 0 && reimbursedTotal > 0) {
     const byPayer: Partial<Record<RecipientId, number>> = {};
@@ -310,9 +311,10 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
     let allocated = 0;
     payers.forEach((p, idx) => {
       if (idx === payers.length - 1) {
-        reimburse[p] = reimbursedTotal - allocated; // คนสุดท้ายดูดเศษ
+        reimburse[p] = Math.max(0, reimbursedTotal - allocated); // คนสุดท้ายดูดเศษ (ไม่ติดลบ)
       } else {
-        const v = Math.round((reimbursedTotal * (byPayer[p] || 0)) / totalExpenses);
+        // clamp ไม่ให้เกินยอดคงเหลือ → คนสุดท้ายไม่ติดลบ
+        const v = Math.max(0, Math.min(reimbursedTotal - allocated, Math.round((reimbursedTotal * (byPayer[p] || 0)) / totalExpenses)));
         reimburse[p] = v;
         allocated += v;
       }

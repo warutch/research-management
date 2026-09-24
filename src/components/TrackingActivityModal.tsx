@@ -110,9 +110,9 @@ export default function TrackingActivityModal({ open, editingActivity, projects,
           ) : null}
           <div className="flex-1" />
           <button onClick={onClose} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 rounded-lg hover:bg-white border border-gray-200">
-            {(!editingActivity || canEdit) ? 'ยกเลิก' : 'ปิด'}
+            {canEdit ? 'ยกเลิก' : 'ปิด'}
           </button>
-          {(!editingActivity || canEdit) && (
+          {canEdit && (
           <button onClick={handleSave} className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-cyan-700 hover:to-blue-700 shadow">
             <Save size={15} /> บันทึก
           </button>

@@ -23,7 +23,7 @@ export function isWorkspaceMissingError(e: unknown): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const err = e as any;
   const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
-  return /workspace/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+  return /workspace/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
 }
 
 // เช่นเดียวกับ workspace — กัน error PGRST204 ถ้า DB ยังไม่มี column 'commission'
@@ -41,7 +41,7 @@ export function isCommissionMissingError(e: unknown): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const err = e as any;
   const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
-  return /commission/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+  return /commission/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
 }
 
 // เช่นเดียวกับ commission — กัน error ถ้า DB ยังไม่มี column 'discount' บน projects
@@ -59,7 +59,7 @@ export function isDiscountMissingError(e: unknown): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const err = e as any;
   const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
-  return /discount/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+  return /discount/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
 }
 
 // เช่นเดียวกัน — กัน error ถ้า DB ยังไม่มี column 'expenses' บน projects
@@ -77,7 +77,7 @@ export function isExpensesMissingError(e: unknown): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const err = e as any;
   const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
-  return /expenses/i.test(msg) && (err?.code === 'PGRST204' || /column/i.test(msg));
+  return /expenses/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
 }
 
 // Detect: relation/table does not exist (PostgreSQL 42P01 / PostgREST PGRST205/PGRST202)
@@ -126,6 +126,27 @@ export function projectToDb(p: Project): any {
   return base;
 }
 
+// Partial update — ส่งเฉพาะ field ที่เปลี่ยน (กัน update ทับทั้งแถวจากอีก client)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function projectPatchToDb(data: Partial<Project>): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: any = {};
+  if ('projectCode' in data) patch.project_code = data.projectCode;
+  if ('name' in data) patch.name = data.name;
+  if ('client' in data) patch.client = data.client;
+  if ('budget' in data) patch.budget = data.budget;
+  if ('startDate' in data) patch.start_date = data.startDate;
+  if ('endDate' in data) patch.end_date = data.endDate;
+  if ('status' in data) patch.status = data.status;
+  if ('activities' in data) patch.activities = data.activities;
+  if ('installments' in data) patch.installments = data.installments;
+  if ('type' in data && !workspaceColumnMissing) patch.workspace = data.type;
+  if ('commission' in data && !commissionColumnMissing) patch.commission = data.commission ?? 0;
+  if ('discount' in data && !discountColumnMissing) patch.discount = data.discount ?? 0;
+  if ('expenses' in data && !expensesColumnMissing) patch.expenses = data.expenses ?? [];
+  return patch;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function projectFromDb(row: any): Project {
   return {
@@ -150,17 +171,23 @@ export function projectFromDb(row: any): Project {
 // --- Payment ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function paymentToDb(p: PaymentRecord): any {
-  return {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base: any = {
     id: p.id,
     project_id: p.projectId,
     installment_id: p.installmentId,
     amount: p.amount,
     paid_date: p.paidDate,
-    slip_url: p.slipUrl,
-    slip_urls: p.slipUrls || [],
     note: p.note,
     created_at: p.createdAt,
   };
+  // ส่ง slip เฉพาะเมื่อ record โหลด slip มาแล้ว (slipUrls !== undefined)
+  // ถ้ายัง lazy (undefined) → ไม่ส่ง เพื่อไม่ให้ update ทับ slip ใน DB เป็น []
+  if (p.slipUrls !== undefined) {
+    base.slip_urls = p.slipUrls;
+    base.slip_url = p.slipUrl ?? (p.slipUrls[0] || '');
+  }
+  return base;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -188,17 +215,21 @@ export const PAYMENT_LIST_COLUMNS = 'id,project_id,installment_id,amount,paid_da
 // --- Distribution ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function distributionToDb(d: DistributionRecord): any {
-  return {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base: any = {
     id: d.id,
     project_id: d.projectId,
     recipient_id: d.recipientId,
     amount: d.amount,
     paid_date: d.paidDate,
-    slip_url: d.slipUrl,
-    slip_urls: d.slipUrls || [],
     note: d.note,
     created_at: d.createdAt,
   };
+  if (d.slipUrls !== undefined) {
+    base.slip_urls = d.slipUrls;
+    base.slip_url = d.slipUrl ?? (d.slipUrls[0] || '');
+  }
+  return base;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -293,7 +324,8 @@ export function trackingActivityFromDb(row: any): TrackingActivity {
 // --- Pool Transaction ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function poolTxToDb(t: PoolTransaction): any {
-  return {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base: any = {
     id: t.id,
     type: t.type,
     amount: t.amount,
@@ -303,9 +335,11 @@ export function poolTxToDb(t: PoolTransaction): any {
     recipient_member_id: t.recipientMemberId || '',
     recipient_name: t.recipientName || '',
     description: t.description,
-    slip_urls: t.slipUrls || [],
     created_at: t.createdAt,
   };
+  // ส่ง slip เฉพาะเมื่อโหลด slip มาแล้ว (กันทับเป็น [] ตอน update)
+  if (t.slipUrls !== undefined) base.slip_urls = t.slipUrls;
+  return base;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta, calcTotalExpenses } from '@/types';
-import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
+import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils';
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
@@ -274,9 +274,12 @@ export default function ProjectsPage() {
 
   // รับ ?id=<projectId> จาก query param → auto select project
   const searchParams = useSearchParams();
+  const appliedUrlIdRef = useRef<string | null>(null);
   useEffect(() => {
     const idFromUrl = searchParams.get('id');
-    if (idFromUrl && sortedProjects.some((p) => p.id === idFromUrl)) {
+    // ใช้ id จาก URL ครั้งเดียวต่อค่า — กันไม่ให้เด้ง selection กลับทุกครั้งที่ข้อมูลเปลี่ยน
+    if (idFromUrl && idFromUrl !== appliedUrlIdRef.current && sortedProjects.some((p) => p.id === idFromUrl)) {
+      appliedUrlIdRef.current = idFromUrl;
       setSelectedProjectId(idFromUrl);
     }
   }, [searchParams, sortedProjects]);
@@ -447,11 +450,13 @@ export default function ProjectsPage() {
 
   // sync สถานะงวดเงินจากยอดโอนจริง
   const syncInstallmentStatus = (projectId: string, installmentId: string) => {
-    const project = projects.find((p) => p.id === projectId);
+    // อ่าน state สดจากสโตร์ (ไม่ใช่ closure) — กัน stale เมื่อเรียกหลัง addPayment/deletePayment ผ่าน setTimeout
+    const state = useStore.getState();
+    const project = state.projects.find((p) => p.id === projectId);
     if (!project) return;
     const inst = project.installments.find((i) => i.id === installmentId);
     if (!inst) return;
-    const totalPaid = payments.filter((p) => p.installmentId === installmentId).reduce((s, p) => s + p.amount, 0);
+    const totalPaid = state.payments.filter((p) => p.installmentId === installmentId).reduce((s, p) => s + p.amount, 0);
     const shouldBePaid = inst.amount > 0 && totalPaid >= inst.amount;
     if (shouldBePaid && inst.status !== 'paid') {
       updateInstallment(projectId, installmentId, { status: 'paid', paidDate: new Date().toISOString().split('T')[0] });
@@ -683,7 +688,9 @@ export default function ProjectsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         {project.projectCode && <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded font-mono">{project.projectCode}</span>}
-                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${PROJECT_TYPE_COLORS[project.type].bg} ${PROJECT_TYPE_COLORS[project.type].text} ${PROJECT_TYPE_COLORS[project.type].border}`}>{PROJECT_TYPE_LABELS[project.type]}</span>
+                        {(() => { const pt = PROJECT_TYPE_COLORS[project.type] || PROJECT_TYPE_COLORS.doctor; return (
+                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${pt.bg} ${pt.text} ${pt.border}`}>{PROJECT_TYPE_LABELS[project.type] || project.type || 'Doctor'}</span>
+                        ); })()}
                         <StatusBadge status={project.status} />
                       </div>
                       <h3 className="font-semibold text-gray-900 leading-snug">{project.name}</h3>
@@ -878,15 +885,19 @@ export default function ProjectsPage() {
                                       <span className="text-xs text-gray-400">{formatCurrency((activity.cost * getPoolPercent(activity)) / 100)}</span>
                                     </td>
                                     <td className="py-2.5 text-center">
-                                      <select
-                                        value={activity.status}
-                                        onChange={(e) => handleActivityStatusChange(project.id, activity.id, activity.name, e.target.value as ProjectStatus)}
-                                        className={`text-xs rounded px-2 py-1 outline-none cursor-pointer border-0 ${getStatusColor(activity.status)}`}
-                                      >
-                                        <option value="pending">รอดำเนินการ</option>
-                                        <option value="in_progress">กำลังดำเนินการ</option>
-                                        <option value="completed">เสร็จสิ้น</option>
-                                      </select>
+                                      {editMode ? (
+                                        <select
+                                          value={activity.status}
+                                          onChange={(e) => handleActivityStatusChange(project.id, activity.id, activity.name, e.target.value as ProjectStatus)}
+                                          className={`text-xs rounded px-2 py-1 outline-none cursor-pointer border-0 ${getStatusColor(activity.status)}`}
+                                        >
+                                          <option value="pending">รอดำเนินการ</option>
+                                          <option value="in_progress">กำลังดำเนินการ</option>
+                                          <option value="completed">เสร็จสิ้น</option>
+                                        </select>
+                                      ) : (
+                                        <span className={`text-xs rounded px-2 py-1 ${getStatusColor(activity.status)}`}>{getStatusLabel(activity.status)}</span>
+                                      )}
                                     </td>
                                     <td className="py-2.5 text-right">
                                       {editMode ? (
@@ -910,28 +921,29 @@ export default function ProjectsPage() {
                                   <td className="py-2.5 text-center text-xs">{formatCurrency(calcPoolRawIncome(project))}</td>
                                   <td /><td />
                                 </tr>
-                                {getCommission(project) > 0 && (() => {
-                                  // ใช้ rounded shares — Coordinator ดูดเศษ
+                                {(getCommission(project) > 0 || calcTotalExpenses(project) > 0) && (() => {
+                                  // ใช้ rounded shares — net รวมหัก commission + ค่าดำเนินการแล้ว (Coordinator ดูดเศษ)
                                   const roundedExpected = calcRoundedExpected(project);
+                                  const totalExp = calcTotalExpenses(project);
+                                  const netSum = MEMBERS.reduce((s, m) => s + roundedExpected.members[m.id], 0) + roundedExpected.horse + roundedExpected.pool;
+                                  const dedTotal = totalCost - netSum; // = commission + ค่าดำเนินการที่จ่ายคืน
+                                  const dedLabel = getCommission(project) > 0 && totalExp > 0 ? 'หัก Commission + ค่าดำเนินการ'
+                                    : getCommission(project) > 0 ? 'หัก Commission' : 'หัก ค่าดำเนินการ';
                                   return (
                                     <>
                                       <tr className="text-rose-700 bg-rose-50">
-                                        <td className="py-2 text-xs">
-                                          <span className="font-medium">หัก Commission</span>
-                                          <span className="ml-1 text-rose-400">(จากสมาชิก 3 คน — Manager+Pool ไม่โดน)</span>
-                                        </td>
-                                        <td className="py-2 text-right text-xs">−{formatCurrency(getCommission(project))}</td>
-                                        {MEMBERS.map((m) => {
-                                          const deduction = calcMemberRawIncome(project, m.id) - roundedExpected.members[m.id];
-                                          return <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(deduction)}</td>;
-                                        })}
-                                        <td className="py-2 text-center text-xs text-gray-400">−฿0</td>
-                                        <td className="py-2 text-center text-xs text-gray-400">−฿0</td>
+                                        <td className="py-2 text-xs"><span className="font-medium">{dedLabel}</span></td>
+                                        <td className="py-2 text-right text-xs">−{formatCurrency(dedTotal)}</td>
+                                        {MEMBERS.map((m) => (
+                                          <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(calcMemberRawIncome(project, m.id) - roundedExpected.members[m.id])}</td>
+                                        ))}
+                                        <td className="py-2 text-center text-xs">−{formatCurrency(calcHorseRawIncome(project) - roundedExpected.horse)}</td>
+                                        <td className="py-2 text-center text-xs">−{formatCurrency(calcPoolRawIncome(project) - roundedExpected.pool)}</td>
                                         <td /><td />
                                       </tr>
                                       <tr className="font-semibold text-gray-900 bg-indigo-50 border-t-2 border-indigo-200">
-                                        <td className="py-2.5">รวมสุทธิ (หลังหัก commission)</td>
-                                        <td className="py-2.5 text-right">{formatCurrency(totalCost - getCommission(project))}</td>
+                                        <td className="py-2.5">รวมสุทธิ (หลังหัก)</td>
+                                        <td className="py-2.5 text-right">{formatCurrency(netSum)}</td>
                                         {MEMBERS.map((m) => <td key={m.id} className="py-2.5 text-center text-xs">{formatCurrency(roundedExpected.members[m.id])}</td>)}
                                         <td className="py-2.5 text-center text-xs">{formatCurrency(roundedExpected.horse)}</td>
                                         <td className="py-2.5 text-center text-xs">{formatCurrency(roundedExpected.pool)}</td>
@@ -949,6 +961,12 @@ export default function ProjectsPage() {
                                   <span className="text-xs text-rose-500">(หัก {Math.round((1 - calcNetRatio(project)) * 100 * 100) / 100}% จากสมาชิก 3 คนหลัก — Manager + Pool ไม่โดน)</span>
                                 </div>
                                 <span className="font-medium text-rose-700">{formatCurrency(getCommission(project))}</span>
+                              </div>
+                            )}
+                            {calcTotalExpenses(project) > 0 && (
+                              <div className="mt-2 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                                <span className="text-sm font-medium text-amber-800">ค่าดำเนินการ (หักก่อนแบ่ง แล้วจ่ายคืนผู้ออกเงิน)</span>
+                                <span className="font-medium text-amber-800">{formatCurrency(calcTotalExpenses(project))}</span>
                               </div>
                             )}
                           </div>
@@ -1087,7 +1105,7 @@ export default function ProjectsPage() {
                       <div className="p-5">
                         <div className="flex items-center justify-between mb-4">
                           <p className="text-xs text-gray-500">บันทึกการชำระเงินของโครงการนี้</p>
-                          <button onClick={() => { setShowPaymentForm(project.id); setPaymentForm({ projectId: project.id, installmentId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); setEditingPaymentId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มรายการโอน</button>
+                          {editMode && <button onClick={() => { setShowPaymentForm(project.id); setPaymentForm({ projectId: project.id, installmentId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); setEditingPaymentId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={14} /> เพิ่มรายการโอน</button>}
                         </div>
 
                         {showPaymentForm === project.id && (
@@ -1125,7 +1143,7 @@ export default function ProjectsPage() {
                                     className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                                   >
                                     <option value="">-- เลือกงวดเงิน --</option>
-                                    {installments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0)).map((inst) => {
+                                    {[...installments].sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0)).map((inst) => {
                                       const fullyPaid = isInstallmentFullyPaid(inst);
                                       const paidSoFar = getInstallmentPaid(inst.id, editingPaymentId || undefined);
                                       const remaining = inst.amount - paidSoFar;
@@ -1348,7 +1366,7 @@ export default function ProjectsPage() {
                                     <div className="bg-white rounded-lg border p-4">
                                       <div className="flex items-center justify-between mb-3">
                                         <h5 className="text-sm font-semibold text-gray-700">สรุปส่วนแบ่ง (จากเงินที่รับมาแล้ว {formatCurrency(totalPaidReal)})</h5>
-                                        <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>
+                                        {editMode && <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>}
                                       </div>
                                       <div className={`grid grid-cols-2 sm:grid-cols-3 ${hasCommission ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-3`}>
                                         {memberShares.map((m) => {
@@ -1565,15 +1583,21 @@ export default function ProjectsPage() {
                                             );
                                           });
                                         })()}
+                                        {(() => {
+                                          // แถวรวมต้องตรงกับผลรวมของ delta ด้านบน = shares เมื่อจ่ายครบตามยอดงวด (ไม่ใช่ตาม cost)
+                                          const rInst = calcRoundedShares(project, totalInstallments);
+                                          return (
                                         <tr className="font-bold text-gray-900 bg-gray-50 border-t-2 border-gray-300">
                                           <td className="px-3 py-2">รวม</td>
                                           <td className="px-3 py-2 text-right">{formatCurrency(totalInstallments)}</td>
                                           <td className="px-3 py-2 text-right text-green-600">{formatCurrency(totalPaidReal)}</td>
-                                          {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.total)}</td>)}
-                                          <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseTotal)}</td>
-                                          <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolTotal)}</td>
-                                          {commissionAmount > 0 && <td className="px-3 py-2 text-center text-rose-600">{formatCurrency(commissionAmount)}</td>}
+                                          {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(rInst.members[m.id] + rInst.reimburse[m.id])}</td>)}
+                                          <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(rInst.horse + rInst.reimburse.horse)}</td>
+                                          <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(rInst.pool + rInst.reimburse.pool)}</td>
+                                          {commissionAmount > 0 && <td className="px-3 py-2 text-center text-rose-600">{formatCurrency(rInst.commission)}</td>}
                                         </tr>
+                                          );
+                                        })()}
                                       </tbody>
                                     </table>
                                   </div>
@@ -1583,7 +1607,7 @@ export default function ProjectsPage() {
                                 <div className="bg-white rounded-lg border p-4">
                                   <div className="flex items-center justify-between mb-3">
                                     <h5 className="text-sm font-semibold text-gray-700">บันทึกการโอนเงินให้สมาชิก</h5>
-                                    <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"><Plus size={14} /> เพิ่มรายการโอน</button>
+                                    {editMode && <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"><Plus size={14} /> เพิ่มรายการโอน</button>}
                                   </div>
 
                                   {showDistForm === project.id && (

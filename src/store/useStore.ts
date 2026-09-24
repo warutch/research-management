@@ -18,7 +18,7 @@ const STATUS_LABELS_TH: Record<ProjectStatus, string> = {
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
 import {
-  projectToDb, projectFromDb,
+  projectToDb, projectPatchToDb, projectFromDb,
   paymentToDb, paymentFromDb,
   distributionToDb, distributionFromDb,
   quotationToDb, quotationFromDb,
@@ -269,6 +269,41 @@ function logErr(action: string, error: unknown) {
 
   // First console.error: ใส่ทุกอย่างในบรรทัดเดียว (Next.js overlay จะเห็น)
   console.error(`[Supabase] ${action} error:`, summary, { info: errorInfo, raw: e, type: `${typeof e}/${e?.constructor?.name || '?'}` });
+
+  // แจ้ง user เมื่อ write ล้มเหลว (ไม่ใช่ read/load) — กัน "UI ขึ้นสำเร็จ แต่ DB ไม่อัปเดต"
+  if (!/^load/i.test(action)) {
+    const short = typeof summary === 'string' ? summary.slice(0, 90) : '';
+    toast.error(`⚠️ บันทึกขึ้น cloud ไม่สำเร็จ (${action})\n${short}\nข้อมูลอยู่ในเครื่องชั่วคราว — ลองใหม่หรือกด Reload`, { duration: 7000 });
+  }
+}
+
+// มาร์ค column ที่หายจาก DB (migration ยังไม่รัน) แล้วบอกว่าเจอไหม → ใช้ retry
+function markIfMissingColumn(error: unknown): boolean {
+  if (isWorkspaceMissingError(error)) { markWorkspaceColumnMissing(); return true; }
+  if (isCommissionMissingError(error)) { markCommissionColumnMissing(); return true; }
+  if (isDiscountMissingError(error)) { markDiscountColumnMissing(); return true; }
+  if (isExpensesMissingError(error)) { markExpensesColumnMissing(); return true; }
+  return false;
+}
+
+// Insert/Update project แบบ retry — ถ้า column หายหลายตัว จะ mark แล้วลองใหม่จนครบ (สูงสุด 5 รอบ)
+async function insertProjectRetry(project: Project) {
+  for (let i = 0; i < 5; i++) {
+    const { error } = await supabase.from('projects').insert(projectToDb(project));
+    if (!error) return;
+    if (markIfMissingColumn(error)) continue;
+    logErr('addProject', error);
+    return;
+  }
+}
+async function updateProjectRetry(id: string, data: Partial<Project>) {
+  for (let i = 0; i < 5; i++) {
+    const { error } = await supabase.from('projects').update(projectPatchToDb(data)).eq('id', id);
+    if (!error) return;
+    if (markIfMissingColumn(error)) continue;
+    logErr('updateProject', error);
+    return;
+  }
 }
 
 // ============================================================
@@ -560,29 +595,7 @@ export const useStore = create<AppState>()(persist(
       const _allProjects = [project, ...state._allProjects];
       return { _allProjects, ...recomputeFiltered({ ...state, _allProjects }) };
     });
-    supabase.from('projects').insert(projectToDb(project)).then(({ error }) => {
-      if (error && isWorkspaceMissingError(error)) {
-        markWorkspaceColumnMissing();
-        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry workspace)', e2));
-        return;
-      }
-      if (error && isCommissionMissingError(error)) {
-        markCommissionColumnMissing();
-        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry commission)', e2));
-        return;
-      }
-      if (error && isDiscountMissingError(error)) {
-        markDiscountColumnMissing();
-        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry discount)', e2));
-        return;
-      }
-      if (error && isExpensesMissingError(error)) {
-        markExpensesColumnMissing();
-        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry expenses)', e2));
-        return;
-      }
-      logErr('addProject', error);
-    });
+    insertProjectRetry(project);
     return id;
   },
 
@@ -591,31 +604,8 @@ export const useStore = create<AppState>()(persist(
       const _allProjects = state._allProjects.map((p) => (p.id === id ? { ...p, ...data } : p));
       return { _allProjects, ...recomputeFiltered({ ...state, _allProjects }) };
     });
-    const updated = get()._allProjects.find((p) => p.id === id);
-    if (!updated) return;
-    supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error }) => {
-      if (error && isWorkspaceMissingError(error)) {
-        markWorkspaceColumnMissing();
-        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry workspace)', e2));
-        return;
-      }
-      if (error && isCommissionMissingError(error)) {
-        markCommissionColumnMissing();
-        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry commission)', e2));
-        return;
-      }
-      if (error && isDiscountMissingError(error)) {
-        markDiscountColumnMissing();
-        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry discount)', e2));
-        return;
-      }
-      if (error && isExpensesMissingError(error)) {
-        markExpensesColumnMissing();
-        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry expenses)', e2));
-        return;
-      }
-      logErr('updateProject', error);
-    });
+    // ส่งเฉพาะ field ที่เปลี่ยน (partial patch) กัน update ทับทั้งแถวจากอีก client
+    updateProjectRetry(id, data);
   },
 
   deleteProject: (id) => {
@@ -624,12 +614,18 @@ export const useStore = create<AppState>()(persist(
       const _allQuotations = state._allQuotations.filter((q) => q.projectId !== id);
       const _allPayments = state._allPayments.filter((p) => p.projectId !== id);
       const _allDistributions = state._allDistributions.filter((d) => d.projectId !== id);
+      const _allTrackingActivities = state._allTrackingActivities.filter((t) => t.projectId !== id);
       return {
-        _allProjects, _allQuotations, _allPayments, _allDistributions,
-        ...recomputeFiltered({ ...state, _allProjects, _allQuotations, _allPayments, _allDistributions }),
+        _allProjects, _allQuotations, _allPayments, _allDistributions, _allTrackingActivities,
+        ...recomputeFiltered({ ...state, _allProjects, _allQuotations, _allPayments, _allDistributions, _allTrackingActivities }),
       };
     });
     supabase.from('projects').delete().eq('id', id).then(({ error }) => logErr('deleteProject', error));
+    // ลบ related rows ด้วย (เผื่อ DB ไม่มี FK ON DELETE CASCADE → กัน orphan)
+    supabase.from('payments').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject payments', error));
+    supabase.from('distributions').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject distributions', error));
+    supabase.from('quotations').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject quotations', error));
+    supabase.from('tracking_activities').delete().eq('project_id', id).then(({ error }) => { if (error && !isTableMissingError(error, 'tracking_activities')) logErr('deleteProject tracking', error); });
   },
 
   // ============ Activities (JSONB inside project) ============
@@ -956,6 +952,8 @@ export const useStore = create<AppState>()(persist(
       const oldPayments: PaymentRecord[] = state.payments || [];
       const oldDistributions: DistributionRecord[] = state.distributions || [];
       const oldQuotations: Quotation[] = state.quotations || [];
+      const oldPool: PoolTransaction[] = state.poolTransactions || [];
+      const oldTracking: TrackingActivity[] = state.trackingActivities || [];
 
       if (oldProjects.length > 0) {
         const { error } = await supabase.from('projects').upsert(oldProjects.map(projectToDb));
@@ -972,6 +970,14 @@ export const useStore = create<AppState>()(persist(
       if (oldQuotations.length > 0) {
         const { error } = await supabase.from('quotations').upsert(oldQuotations.map(quotationToDb));
         if (error) throw new Error(`Quotations: ${error.message}`);
+      }
+      if (oldPool.length > 0) {
+        const { error } = await supabase.from('pool_transactions').upsert(oldPool.map(poolTxToDb));
+        if (error && !isTableMissingError(error, 'pool_transactions')) throw new Error(`Pool: ${error.message}`);
+      }
+      if (oldTracking.length > 0) {
+        const { error } = await supabase.from('tracking_activities').upsert(oldTracking.map(trackingActivityToDb));
+        if (error && !isTableMissingError(error, 'tracking_activities')) throw new Error(`Tracking: ${error.message}`);
       }
 
       await get().loadAllData();

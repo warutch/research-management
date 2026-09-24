@@ -42,7 +42,7 @@ export default function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { projects, quotations, migrateFromLocalStorage, reloadAllData } = useStore();
+  const { projects, quotations, trackingActivities, migrateFromLocalStorage, reloadAllData } = useStore();
   const [reloading, setReloading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const { user } = useAuth();
@@ -118,6 +118,7 @@ export default function Sidebar() {
         payments,
         distributions,
         poolTransactions,
+        trackingActivities,
       };
       const jsonStr = JSON.stringify(data, null, 2);
       const sizeMB = (new Blob([jsonStr]).size / 1024 / 1024).toFixed(2);
@@ -148,21 +149,37 @@ export default function Sidebar() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
         if (!data.projects || !data.quotations) {
           alert('ไฟล์ไม่ถูกต้อง: ต้องมี projects และ quotations');
           return;
         }
-        if (!confirm(`นำเข้าข้อมูล ${data.projects.length} โครงการ, ${data.quotations.length} ใบเสนอราคา, ${(data.payments || []).length} รายการชำระเงิน, ${(data.distributions || []).length} รายการแบ่งเงิน?\n\nข้อมูลเดิมจะถูกแทนที่ทั้งหมด`)) return;
+        if (!confirm(`นำเข้าข้อมูล ${data.projects.length} โครงการ, ${data.quotations.length} ใบเสนอราคา, ${(data.payments || []).length} ชำระเงิน, ${(data.distributions || []).length} แบ่งเงิน, ${(data.poolTransactions || []).length} เงินกองกลาง, ${(data.trackingActivities || []).length} กิจกรรม?\n\nข้อมูลที่ id ตรงกันจะถูกอัปเดต (merge เข้ากับ Cloud)`)) return;
 
+        // เขียนลง key ที่ migrateFromLocalStorage อ่าน (รวม pool + tracking) แล้ว push ขึ้น Cloud จริง
         const storageData = {
-          state: { projects: data.projects, quotations: data.quotations, payments: data.payments || [], distributions: data.distributions || [] },
+          state: {
+            projects: data.projects,
+            quotations: data.quotations,
+            payments: data.payments || [],
+            distributions: data.distributions || [],
+            poolTransactions: data.poolTransactions || [],
+            trackingActivities: data.trackingActivities || [],
+          },
           version: 0,
         };
         localStorage.setItem('research-management-storage', JSON.stringify(storageData));
-        window.location.reload();
+        const t = toast.info('กำลังนำเข้าข้อมูลขึ้น Cloud...', { duration: 0 });
+        try {
+          await migrateFromLocalStorage();
+          toast.dismiss(t);
+          toast.success('นำเข้าข้อมูลสำเร็จ');
+        } catch (err) {
+          toast.dismiss(t);
+          toast.error(`นำเข้าล้มเหลว: ${(err as { message?: string })?.message || 'unknown'}`, { duration: 8000 });
+        }
       } catch {
         alert('ไม่สามารถอ่านไฟล์ได้ กรุณาเลือกไฟล์ JSON ที่ถูกต้อง');
       }
