@@ -1616,10 +1616,11 @@ export default function ProjectsPage() {
                                                   const totalPaidForProject = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
                                                   const rs = calcRoundedShares(project, totalPaidForProject);
                                                   let shouldPay = 0;
+                                                  // รวมส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ (reimburse)
                                                   if (rid === 'commission') shouldPay = rs.commission;
-                                                  else if (rid === 'horse') shouldPay = rs.horse;
-                                                  else if (rid === 'pool') shouldPay = rs.pool;
-                                                  else shouldPay = rs.members[rid as MemberId] ?? 0;
+                                                  else if (rid === 'horse') shouldPay = rs.horse + rs.reimburse.horse;
+                                                  else if (rid === 'pool') shouldPay = rs.pool + rs.reimburse.pool;
+                                                  else shouldPay = (rs.members[rid as MemberId] ?? 0) + rs.reimburse[rid as MemberId];
                                                   prefillAmount = Math.max(0, shouldPay - alreadyPaid);
                                                 }
                                                 setDistForm({ ...distForm, recipientId: rid as RecipientId, amount: prefillAmount });
@@ -1645,6 +1646,17 @@ export default function ProjectsPage() {
                                               <input type="date" value={distForm.paidDate} onChange={(e) => setDistForm({ ...distForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" />
                                             </div>
                                           </div>
+                                          {distForm.recipientId && (() => {
+                                            const rid = distForm.recipientId as RecipientId;
+                                            const clientPaidNow = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
+                                            const reimb = calcRoundedShares(project, clientPaidNow).reimburse[rid] || 0;
+                                            if (reimb <= 0) return null;
+                                            return (
+                                              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+                                                ↩ ยอดที่แนะนำรวม <b>จ่ายคืนค่าดำเนินการ ฿{reimb.toLocaleString()}</b> ที่ {ALL_SHARE_NAMES[rid]} ออกไปก่อน (ส่วนที่เหลือคือส่วนแบ่งกำไร)
+                                              </div>
+                                            );
+                                          })()}
                                           <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">อัพโหลด Slip</label>
                                             <SlipUploader
