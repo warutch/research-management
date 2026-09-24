@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import {
-  Project, Quotation, Activity, MemberId, PaymentInstallment, PaymentRecord,
+  Project, Quotation, Activity, ProjectExpense, MemberId, PaymentInstallment, PaymentRecord,
   DistributionRecord, TrackingActivity, PoolTransaction, HORSE_PERCENT, POOL_PERCENT,
   ProjectType, ProjectStatus, MEMBERS, PROJECT_TYPE_LABELS,
 } from '@/types';
@@ -28,6 +28,7 @@ import {
   markWorkspaceColumnMissing, isWorkspaceMissingError,
   markCommissionColumnMissing, isCommissionMissingError,
   markDiscountColumnMissing, isDiscountMissingError,
+  markExpensesColumnMissing, isExpensesMissingError,
   isTableMissingError,
 } from '@/lib/supabaseSync';
 import { toast } from '@/components/Toast';
@@ -90,6 +91,9 @@ interface AppState {
   updateActivity: (projectId: string, activityId: string, data: Partial<Activity>) => void;
   deleteActivity: (projectId: string, activityId: string) => void;
   moveActivity: (projectId: string, activityId: string, direction: 'up' | 'down') => void;
+  addExpense: (projectId: string, expense: Omit<ProjectExpense, 'id'>) => void;
+  updateExpense: (projectId: string, expenseId: string, data: Partial<ProjectExpense>) => void;
+  deleteExpense: (projectId: string, expenseId: string) => void;
 
   // Installments
   addInstallment: (projectId: string, installment: Omit<PaymentInstallment, 'id'>) => void;
@@ -572,6 +576,11 @@ export const useStore = create<AppState>()(persist(
         supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry discount)', e2));
         return;
       }
+      if (error && isExpensesMissingError(error)) {
+        markExpensesColumnMissing();
+        supabase.from('projects').insert(projectToDb(project)).then(({ error: e2 }) => logErr('addProject (retry expenses)', e2));
+        return;
+      }
       logErr('addProject', error);
     });
     return id;
@@ -598,6 +607,11 @@ export const useStore = create<AppState>()(persist(
       if (error && isDiscountMissingError(error)) {
         markDiscountColumnMissing();
         supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry discount)', e2));
+        return;
+      }
+      if (error && isExpensesMissingError(error)) {
+        markExpensesColumnMissing();
+        supabase.from('projects').update(projectToDb(updated)).eq('id', id).then(({ error: e2 }) => logErr('updateProject (retry expenses)', e2));
         return;
       }
       logErr('updateProject', error);
@@ -671,6 +685,43 @@ export const useStore = create<AppState>()(persist(
     });
     const updated = get()._allProjects.find((p) => p.id === projectId);
     if (updated) supabase.from('projects').update({ activities: updated.activities }).eq('id', projectId).then(({ error }) => logErr('moveActivity', error));
+  },
+
+  // ============ Project Expenses (ค่าดำเนินการ — JSONB) ============
+  addExpense: (projectId, expenseData) => {
+    const id = uuidv4();
+    set((state) => {
+      const _allProjects = state._allProjects.map((p) =>
+        p.id === projectId ? { ...p, expenses: [...(p.expenses || []), { ...expenseData, id }] } : p
+      );
+      return { _allProjects, ...recomputeFiltered({ ...state, _allProjects }) };
+    });
+    const updated = get()._allProjects.find((p) => p.id === projectId);
+    if (updated) supabase.from('projects').update({ expenses: updated.expenses || [] }).eq('id', projectId).then(({ error }) => logErr('addExpense', error));
+  },
+
+  updateExpense: (projectId, expenseId, data) => {
+    set((state) => {
+      const _allProjects = state._allProjects.map((p) =>
+        p.id === projectId
+          ? { ...p, expenses: (p.expenses || []).map((e) => (e.id === expenseId ? { ...e, ...data } : e)) }
+          : p
+      );
+      return { _allProjects, ...recomputeFiltered({ ...state, _allProjects }) };
+    });
+    const updated = get()._allProjects.find((p) => p.id === projectId);
+    if (updated) supabase.from('projects').update({ expenses: updated.expenses || [] }).eq('id', projectId).then(({ error }) => logErr('updateExpense', error));
+  },
+
+  deleteExpense: (projectId, expenseId) => {
+    set((state) => {
+      const _allProjects = state._allProjects.map((p) =>
+        p.id === projectId ? { ...p, expenses: (p.expenses || []).filter((e) => e.id !== expenseId) } : p
+      );
+      return { _allProjects, ...recomputeFiltered({ ...state, _allProjects }) };
+    });
+    const updated = get()._allProjects.find((p) => p.id === projectId);
+    if (updated) supabase.from('projects').update({ expenses: updated.expenses || [] }).eq('id', projectId).then(({ error }) => logErr('deleteExpense', error));
   },
 
   // ============ Installments (JSONB) ============

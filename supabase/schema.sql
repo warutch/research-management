@@ -219,6 +219,9 @@ alter table projects add column if not exists commission numeric not null defaul
 -- ส่วนลด % รายโครงการ — ใช้ต่อในใบเสนอราคา
 alter table projects add column if not exists discount numeric not null default 0;
 
+-- ค่าดำเนินการรายโครงการ (เช่น ค่าเก็บข้อมูล) — เก็บเป็น JSONB list
+alter table projects add column if not exists expenses jsonb default '[]'::jsonb;
+
 -- ================================================================
 -- 5. Migration: has_slip generated column
 -- แก้ปัญหา "statement timeout" — เดิม select * ต้องดึง slip_urls (base64 images MB-scale)

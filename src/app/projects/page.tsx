@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta, calcTotalExpenses } from '@/types';
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils';
 import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
@@ -217,6 +217,7 @@ export default function ProjectsPage() {
   const {
     projects, addProject, updateProject, deleteProject,
     addActivity, updateActivity, deleteActivity, moveActivity,
+    addExpense, deleteExpense,
     addInstallment, updateInstallment, deleteInstallment,
     payments, addPayment, updatePayment, deletePayment,
     distributions, addDistribution, deleteDistribution,
@@ -299,6 +300,17 @@ export default function ProjectsPage() {
   // Distribution form
   const [showDistForm, setShowDistForm] = useState<string | null>(null);
   const [distForm, setDistForm] = useState({ projectId: '', recipientId: '' as RecipientId | '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [] as string[], note: '' });
+
+  // Expense form (ค่าดำเนินการ)
+  const [expenseForm, setExpenseForm] = useState({ name: '', amount: 0, paidBy: '' as RecipientId | '' });
+  const EXPENSE_PAYERS: RecipientId[] = ['tangmo', 'frank', 'ton', 'horse', 'pool'];
+  const handleAddExpense = (projectId: string) => {
+    if (!expenseForm.name.trim()) { toast.error('กรุณาระบุชื่อค่าใช้จ่าย'); return; }
+    if (!expenseForm.amount || expenseForm.amount <= 0) { toast.error('กรุณาระบุจำนวนเงิน'); return; }
+    if (!expenseForm.paidBy) { toast.error('กรุณาเลือกผู้ที่ออกเงิน'); return; }
+    addExpense(projectId, { name: expenseForm.name.trim(), amount: expenseForm.amount, paidBy: expenseForm.paidBy });
+    setExpenseForm({ name: '', amount: 0, paidBy: '' });
+  };
 
   const handleSaveDistribution = (projectId: string) => {
     if (!distForm.recipientId) { toast.error('กรุณาเลือกผู้รับเงิน'); return; }
@@ -1243,6 +1255,44 @@ export default function ProjectsPage() {
                         <div className="mb-4">
                           <h4 className="text-sm font-semibold text-gray-700 mb-1">สรุปการแบ่งเงินโครงการ</h4>
                           <p className="text-xs text-gray-500">คำนวณจากค่าบริการกิจกรรม × % ส่วนแบ่งที่กำหนด (Manager + Pool money ปรับ % รายกิจกรรมได้)</p>
+                        </div>
+
+                        {/* ค่าดำเนินการ — หักก่อนแบ่ง + จ่ายคืนผู้ออกเงิน */}
+                        <div className="mb-5 bg-amber-50/60 border border-amber-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <h5 className="text-sm font-semibold text-amber-800">ค่าดำเนินการ (หักก่อนแบ่ง)</h5>
+                              <p className="text-[11px] text-amber-600">หักออกจากรายได้ก่อนแบ่งให้ทุกคน แล้วจ่ายคืนเต็มจำนวนให้ผู้ที่ออกเงิน</p>
+                            </div>
+                            {calcTotalExpenses(project) > 0 && (
+                              <span className="text-sm font-semibold text-amber-800 shrink-0">รวมหัก −{formatCurrency(calcTotalExpenses(project))}</span>
+                            )}
+                          </div>
+                          {(project.expenses || []).length > 0 ? (
+                            <div className="space-y-1 mb-2">
+                              {(project.expenses || []).map((e) => (
+                                <div key={e.id} className="flex items-center gap-2 text-xs bg-white rounded px-2.5 py-1.5 border border-amber-100">
+                                  <span className="flex-1 min-w-0 truncate text-gray-700">{e.name}</span>
+                                  <span className="text-gray-400 whitespace-nowrap">จ่ายคืน → {ALL_SHARE_NAMES[e.paidBy]}</span>
+                                  <span className="font-medium text-amber-700 whitespace-nowrap">฿{e.amount.toLocaleString()}</span>
+                                  {editMode && <button onClick={() => { if (confirm('ลบค่าใช้จ่ายนี้?')) deleteExpense(project.id, e.id); }} className="p-0.5 text-gray-400 hover:text-red-500"><Trash2 size={12} /></button>}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            !editMode && <p className="text-[11px] text-gray-400 italic">ยังไม่มีค่าดำเนินการ</p>
+                          )}
+                          {editMode && (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <input value={expenseForm.name} onChange={(e) => setExpenseForm({ ...expenseForm, name: e.target.value })} placeholder="ชื่อ เช่น ค่าเก็บข้อมูล" className="flex-1 min-w-[120px] border border-amber-200 rounded px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-amber-400" />
+                              <input type="number" min={0} value={expenseForm.amount || ''} onChange={(e) => setExpenseForm({ ...expenseForm, amount: Number(e.target.value) || 0 })} placeholder="บาท" className="w-20 border border-amber-200 rounded px-2 py-1.5 text-xs text-right outline-none focus:ring-1 focus:ring-amber-400" />
+                              <select value={expenseForm.paidBy} onChange={(e) => setExpenseForm({ ...expenseForm, paidBy: e.target.value as RecipientId })} className="border border-amber-200 rounded px-2 py-1.5 text-xs bg-white outline-none focus:ring-1 focus:ring-amber-400">
+                                <option value="">จ่ายโดย...</option>
+                                {EXPENSE_PAYERS.map((r) => <option key={r} value={r}>{ALL_SHARE_NAMES[r]}</option>)}
+                              </select>
+                              <button onClick={() => handleAddExpense(project.id)} className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 whitespace-nowrap"><Plus size={13} /> เพิ่ม</button>
+                            </div>
+                          )}
                         </div>
 
                         {project.activities.length > 0 ? (

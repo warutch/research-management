@@ -95,7 +95,7 @@ export default function IncomePage() {
 
   // รายรับที่คาดว่าจะได้ (จากกิจกรรม) — ใช้ rounded NET (Coordinator ดูดเศษ)
   const memberIncomes = MEMBERS.map((member) => {
-    const expectedIncome = filteredProjects.reduce((total, project) => total + calcRoundedExpected(project).members[member.id], 0);
+    const expectedIncome = filteredProjects.reduce((total, project) => { const rx = calcRoundedExpected(project); return total + rx.members[member.id] + rx.reimburse[member.id]; }, 0);
 
     // รายรับจริงที่ได้รับ (จาก distributions)
     const actualIncome = distributions
@@ -103,13 +103,15 @@ export default function IncomePage() {
       .reduce((s, d) => s + d.amount, 0);
 
     const projectBreakdown = filteredProjects.map((project) => {
-      const expected = calcRoundedExpected(project).members[member.id];
+      const rExp = calcRoundedExpected(project);
+      const expected = rExp.members[member.id] + rExp.reimburse[member.id];
       const actual = distributions
         .filter((d) => d.recipientId === member.id && d.projectId === project.id)
         .reduce((s, d) => s + d.amount, 0);
-      // คำนวณ "ต้องโอน" จากสัดส่วนเงินที่ลูกค้าชำระแล้ว (commission-first, rounded)
+      // คำนวณ "ต้องโอน" จากสัดส่วนเงินที่ลูกค้าชำระแล้ว (commission-first, rounded) + จ่ายคืนค่าดำเนินการ
       const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-      const shouldPay = calcRoundedShares(project, clientPaid).members[member.id];
+      const rShare = calcRoundedShares(project, clientPaid);
+      const shouldPay = rShare.members[member.id] + rShare.reimburse[member.id];
       const diff = shouldPay - actual; // บวก = ค้าง, ลบ = เกิน
       const outstanding = Math.max(0, diff);
       const overpaid = Math.max(0, -diff);
@@ -133,13 +135,14 @@ export default function IncomePage() {
     let actual = 0;
     let shouldPay = 0;
     for (const project of filteredProjects) {
-      expected += getExpectedExact(project);
+      expected += getExpectedExact(project) + calcRoundedExpected(project).reimburse[rid];
       const act = distributions
         .filter((d) => d.recipientId === rid && d.projectId === project.id)
         .reduce((s, d) => s + d.amount, 0);
       actual += act;
       const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-      shouldPay += pick(calcRoundedShares(project, clientPaid));
+      const rs = calcRoundedShares(project, clientPaid);
+      shouldPay += pick(rs) + rs.reimburse[rid];
     }
     const outstandingPayable = Math.max(0, shouldPay - actual);
     return { expected, actual, shouldPay, outstandingPayable };

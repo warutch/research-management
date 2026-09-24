@@ -120,11 +120,25 @@ export interface Project {
   type: ProjectType; // 'doctor' | 'student'
   commission?: number; // ค่า commission รายโครงการ (one-time) — default 0; Student default 1000
   discount?: number; // ส่วนลด % ของโครงการ — ใช้ต่อในใบเสนอราคา (default 0)
+  expenses?: ProjectExpense[]; // ค่าดำเนินการโครงการ — หักก่อนแบ่ง + จ่ายคืนผู้ที่ออกเงิน
+}
+
+// ค่าดำเนินการรายโครงการ (เช่น ค่าเก็บข้อมูล) — หักออกจากรายได้ก่อนแบ่ง แล้วจ่ายคืนผู้ที่ออกเงิน
+export interface ProjectExpense {
+  id: string;
+  name: string;       // เช่น "ค่าเก็บข้อมูล"
+  amount: number;     // บาท
+  paidBy: RecipientId; // ผู้ที่ออกเงินไปก่อน (ไว้จ่ายคืน) — tangmo|frank|ton|horse|pool
 }
 
 // Helper: ดึงค่า commission ของโครงการ (fallback 0)
 export function getCommission(p: Pick<Project, 'commission'>): number {
   return p.commission ?? 0;
+}
+
+// ผลรวมค่าดำเนินการทั้งหมดของโครงการ
+export function calcTotalExpenses(project: Project): number {
+  return (project.expenses || []).reduce((s, e) => s + (e.amount || 0), 0);
 }
 
 // ============ Income calculation helpers ============
@@ -267,7 +281,12 @@ export interface RoundedShares {
   horse: number;
   pool: number;
   commission: number;
+  reimburse: Record<RecipientId, number>; // จ่ายคืนค่าดำเนินการ (ตาม paidBy)
   total: number; // = sum ของทั้งหมด (= cappedPaid)
+}
+
+function emptyReimburse(): Record<RecipientId, number> {
+  return { tangmo: 0, frank: 0, ton: 0, horse: 0, pool: 0, commission: 0 };
 }
 
 export function calcRoundedShares(project: Project, clientPaid: number): RoundedShares {
@@ -275,21 +294,46 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   const cappedPaid = Math.min(totalCost, Math.max(0, clientPaid));
 
   if (totalCost <= 0) {
-    return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, total: 0 };
+    return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, reimburse: emptyReimburse(), total: 0 };
   }
 
+  // 0. จ่ายคืนค่าดำเนินการก่อน (priority) — ตัดจากยอดที่รับมาก่อนแบ่ง
+  //    แบ่งตามสัดส่วนเงินที่แต่ละคนออกไป (จำนวนเต็ม, คนสุดท้ายดูดเศษ)
+  const expenses = project.expenses || [];
+  const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const reimbursedTotal = Math.round(Math.min(totalExpenses, cappedPaid));
+  const reimburse = emptyReimburse();
+  if (totalExpenses > 0 && reimbursedTotal > 0) {
+    const byPayer: Partial<Record<RecipientId, number>> = {};
+    for (const e of expenses) byPayer[e.paidBy] = (byPayer[e.paidBy] || 0) + (e.amount || 0);
+    const payers = Object.keys(byPayer) as RecipientId[];
+    let allocated = 0;
+    payers.forEach((p, idx) => {
+      if (idx === payers.length - 1) {
+        reimburse[p] = reimbursedTotal - allocated; // คนสุดท้ายดูดเศษ
+      } else {
+        const v = Math.round((reimbursedTotal * (byPayer[p] || 0)) / totalExpenses);
+        reimburse[p] = v;
+        allocated += v;
+      }
+    });
+  }
+
+  // ยอดที่เหลือหลังจ่ายคืนค่าดำเนินการ → เอาไปแบ่งตามสัดส่วน
+  const distributable = Math.max(0, cappedPaid - reimbursedTotal);
+
   // 1. Manager + Pool: raw proportional, rounded
-  const horse = Math.round((calcHorseRawIncome(project) * cappedPaid) / totalCost);
-  const pool = Math.round((calcPoolRawIncome(project) * cappedPaid) / totalCost);
+  const horse = Math.round((calcHorseRawIncome(project) * distributable) / totalCost);
+  const pool = Math.round((calcPoolRawIncome(project) * distributable) / totalCost);
 
   // 2. Commission: ตัดจาก members' pot ก่อน (จำนวนเต็ม)
   const commissionAmount = getCommission(project);
   const memberSumRaw = calcMemberSumRaw(project);
-  const exactMembersPot = (memberSumRaw * cappedPaid) / totalCost;
+  const exactMembersPot = (memberSumRaw * distributable) / totalCost;
   const commission = Math.round(Math.min(commissionAmount, exactMembersPot));
 
-  // 3. ที่เหลือสำหรับ 3 สมาชิก = cappedPaid - horse - pool - commission
-  const remainingForMembers = Math.max(0, cappedPaid - horse - pool - commission);
+  // 3. ที่เหลือสำหรับ 3 สมาชิก = distributable - horse - pool - commission
+  const remainingForMembers = Math.max(0, distributable - horse - pool - commission);
 
   // 4. Specialist + Analyst rounded, Coordinator (ton) absorb เศษ
   const tangmoRaw = calcMemberRawIncome(project, 'tangmo');
@@ -298,7 +342,7 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   const frank = memberSumRaw > 0 ? Math.round((remainingForMembers * frankRaw) / memberSumRaw) : 0;
   const ton = Math.max(0, remainingForMembers - tangmo - frank);
 
-  return { members: { tangmo, frank, ton }, horse, pool, commission, total: cappedPaid };
+  return { members: { tangmo, frank, ton }, horse, pool, commission, reimburse, total: cappedPaid };
 }
 
 // Convenience: yodtem expected NET ของแต่ละ recipient เมื่อโครงการจ่ายครบ (rounded)
@@ -320,6 +364,14 @@ export function calcRoundedSharesDelta(project: Project, beforeCumulative: numbe
     horse: after.horse - before.horse,
     pool: after.pool - before.pool,
     commission: after.commission - before.commission,
+    reimburse: {
+      tangmo: after.reimburse.tangmo - before.reimburse.tangmo,
+      frank: after.reimburse.frank - before.reimburse.frank,
+      ton: after.reimburse.ton - before.reimburse.ton,
+      horse: after.reimburse.horse - before.reimburse.horse,
+      pool: after.reimburse.pool - before.reimburse.pool,
+      commission: after.reimburse.commission - before.reimburse.commission,
+    },
     total: after.total - before.total,
   };
 }
