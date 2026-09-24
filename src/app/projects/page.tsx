@@ -1313,20 +1313,23 @@ export default function ProjectsPage() {
                                 amount: (a.cost * (a.sharePercent[m.id] || 0)) / 100,
                               }));
                               const rawTotal = byActivity.reduce((s, a) => s + a.amount, 0);
-                              // total = NET ทั้งโครงการ (rounded, ton ดูดเศษ)
-                              const total = roundedExpected.members[m.id];
-                              // shouldPayNow = ที่ต้องโอนตอนนี้ (rounded)
-                              const shouldPayNow = roundedNow.members[m.id];
-                              return { ...m, byActivity, total, rawTotal, shouldPayNow };
+                              // จ่ายคืนค่าดำเนินการ (แยกจากกำไร)
+                              const reimburseTotal = roundedExpected.reimburse[m.id];
+                              const reimburseNow = roundedNow.reimburse[m.id];
+                              // total = NET ทั้งโครงการ (กำไร + จ่ายคืน, rounded, ton ดูดเศษ)
+                              const total = roundedExpected.members[m.id] + reimburseTotal;
+                              // shouldPayNow = ที่ต้องโอนตอนนี้ (กำไร + จ่ายคืน, rounded)
+                              const shouldPayNow = roundedNow.members[m.id] + reimburseNow;
+                              return { ...m, byActivity, total, rawTotal, shouldPayNow, reimburseTotal };
                             });
 
                             const horseRawTotal = calcHorseRawIncome(project);
                             const poolRawTotal = calcPoolRawIncome(project);
                             // Manager + Pool ไม่โดน commission → total = raw (rounded)
-                            const horseTotal = roundedExpected.horse;
-                            const poolTotal = roundedExpected.pool;
-                            const horseShouldPayNow = roundedNow.horse;
-                            const poolShouldPayNow = roundedNow.pool;
+                            const horseTotal = roundedExpected.horse + roundedExpected.reimburse.horse;
+                            const poolTotal = roundedExpected.pool + roundedExpected.reimburse.pool;
+                            const horseShouldPayNow = roundedNow.horse + roundedNow.reimburse.horse;
+                            const poolShouldPayNow = roundedNow.pool + roundedNow.reimburse.pool;
                             const commissionShouldPay = roundedNow.commission;
 
                             // grandTotal = totalCost (= cappedPaid เมื่อจ่ายครบ)
@@ -1359,6 +1362,9 @@ export default function ProjectsPage() {
                                               <p className="text-sm text-gray-700 font-medium">{m.name}</p>
                                               <p className="text-lg font-bold mt-1" style={{ color: m.color }}>{formatCurrency(m.total)}</p>
                                               <p className="text-xs text-gray-400">ส่วนแบ่งทั้งโครงการ</p>
+                                              {m.reimburseTotal > 0 && (
+                                                <p className="text-[11px] text-amber-600 mt-0.5">↩ รวมจ่ายคืน +{formatCurrency(m.reimburseTotal)}</p>
+                                              )}
                                               {alreadyPaid > 0 && (
                                                 <p className="text-xs text-green-600 mt-1">โอนแล้ว: {formatCurrency(alreadyPaid)}</p>
                                               )}

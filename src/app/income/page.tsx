@@ -122,7 +122,14 @@ export default function IncomePage() {
     const outstandingPayable = projectBreakdown.reduce((s, p) => s + p.outstanding, 0);
     const shouldPayTotal = projectBreakdown.reduce((s, p) => s + p.shouldPay, 0);
 
-    return { ...member, expectedIncome, actualIncome, projectBreakdown, outstandingPayable, shouldPayTotal };
+    // แยกยอด "จ่ายคืนค่าดำเนินการ" (ส่วนที่ไม่ใช่กำไร)
+    const reimburseExpected = filteredProjects.reduce((t, project) => t + calcRoundedExpected(project).reimburse[member.id], 0);
+    const reimburseShouldPay = filteredProjects.reduce((t, project) => {
+      const cp = payments.filter((x) => x.projectId === project.id).reduce((s, x) => s + x.amount, 0);
+      return t + calcRoundedShares(project, cp).reimburse[member.id];
+    }, 0);
+
+    return { ...member, expectedIncome, actualIncome, projectBreakdown, outstandingPayable, shouldPayTotal, reimburseExpected, reimburseShouldPay };
   });
 
   // Helper: คำนวณรวมต่อ recipient (rounded shouldPay)
@@ -239,6 +246,12 @@ export default function IncomePage() {
               </InfoTip>
               <span className="text-sm font-medium text-gray-500 ml-auto">{formatCurrency(member.expectedIncome)}</span>
             </div>
+            {member.reimburseExpected > 0 && (
+              <div className="flex items-center gap-2 mt-0.5 pl-[22px]">
+                <span className="text-[11px] text-amber-600">↩ รวมจ่ายคืนค่าดำเนินการ</span>
+                <span className="text-[11px] font-medium text-amber-600 ml-auto">+{formatCurrency(member.reimburseExpected)}</span>
+              </div>
+            )}
             {(() => {
               const outstanding = member.outstandingPayable;
               const futureRemaining = Math.max(0, member.expectedIncome - member.actualIncome - outstanding); // ส่วนที่รอลูกค้าจ่ายอีก
@@ -247,6 +260,7 @@ export default function IncomePage() {
                   <p className="font-medium text-white mb-1.5 border-b border-gray-700 pb-1">คงค้าง — รายละเอียด</p>
                   <p className="text-[11px] text-gray-400 mb-1">คิดจากที่ลูกค้าจ่ายเข้ามาเท่านั้น</p>
                   <TooltipRow label={`ลูกค้าจ่ายแล้ว → ส่วนของ ${member.name}`} value={formatCurrency(member.shouldPayTotal)} />
+                  {member.reimburseShouldPay > 0 && <TooltipRow label="↳ รวมจ่ายคืนค่าดำเนินการ" value={formatCurrency(member.reimburseShouldPay)} accent="amber" />}
                   <TooltipRow label="โอนให้สมาชิกแล้ว" value={formatCurrency(member.actualIncome)} accent="green" />
                   <TooltipRow label="คงค้าง (ที่ต้องโอนตอนนี้)" value={formatCurrency(outstanding)} accent={outstanding > 0 ? 'amber' : 'green'} />
                   {futureRemaining > 0 && <TooltipRow label="รอลูกค้าจ่ายอีก" value={formatCurrency(futureRemaining)} accent="gray" />}
