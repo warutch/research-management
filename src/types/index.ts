@@ -194,6 +194,13 @@ export function getCompanyFactor(project: Project): number {
   return Math.max(0, ((100 - w) / (100 + v)) * ((100 - c) / 100));
 }
 
+// ปัดยอด "เหลือแบ่งทีม" ขึ้นเป็นหลักร้อย (ลงท้าย 00) — บริษัทออกส่วนต่างให้ทีม
+// clamp ไม่ให้เกินยอดที่รับมาจริง (cap)
+export function roundTeamPot(project: Project, rawPot: number, cap: number): number {
+  if (!project.companyPassThrough) return rawPot;
+  return Math.min(cap, Math.ceil(rawPot / 100) * 100);
+}
+
 export interface CompanyBreakdown {
   gross: number;      // ยอดเรียกเก็บ (รวม VAT)
   preVat: number;     // ค่าบริการก่อน VAT
@@ -202,7 +209,9 @@ export interface CompanyBreakdown {
   afterWht: number;   // บริษัทได้หลังหัก ณ ที่จ่าย
   afterVat: number;   // หลังบริษัทส่ง VAT
   companyFee: number; // ค่าดำเนินการบริษัท
-  net: number;        // เหลือแบ่งทีม
+  netRaw: number;     // เหลือแบ่งทีม (ก่อนปัด)
+  roundingBonus: number; // ส่วนต่างที่บริษัทออกให้ (ปัดขึ้นหลักร้อย)
+  net: number;        // เหลือแบ่งทีม (หลังปัด — ลงท้าย 00)
   vatRate: number; whtRate: number; feeRate: number;
 }
 
@@ -217,13 +226,15 @@ export function calcCompanyBreakdown(project: Project, gross: number): CompanyBr
   const afterWht = gross - wht;
   const afterVat = afterWht - vat;
   const companyFee = afterVat * (feeRate / 100);
-  const net = afterVat - companyFee;
-  return { gross, preVat, vat, wht, afterWht, afterVat, companyFee, net, vatRate, whtRate, feeRate };
+  const netRaw = afterVat - companyFee;
+  const net = roundTeamPot(project, netRaw, gross);
+  return { gross, preVat, vat, wht, afterWht, afterVat, companyFee, netRaw, roundingBonus: net - netRaw, net, vatRate, whtRate, feeRate };
 }
 
-// ยอดสุทธิที่ "ทีม" ได้จริงเมื่อรับเงินครบ (หลังส่วนลด + หลังผ่านบริษัท)
+// ยอดสุทธิที่ "ทีม" ได้จริงเมื่อรับเงินครบ (หลังส่วนลด + หลังผ่านบริษัท + ปัดหลักร้อย)
 export function calcTeamNetTotal(project: Project): number {
-  return calcProjectNetTotal(project) * getCompanyFactor(project);
+  const clientPayable = calcProjectNetTotal(project);
+  return roundTeamPot(project, clientPayable * getCompanyFactor(project), clientPayable);
 }
 
 // รายได้ดิบของสมาชิก (ยังไม่หัก commission) — สำหรับโครงการ
@@ -371,8 +382,9 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   const clientPayable = calcProjectNetTotal(project);
   const cappedPaid = Math.min(clientPayable, Math.max(0, clientPaid));
   // pot = เงินที่ "เหลือถึงทีม" หลังผ่านบริษัท (VAT/หัก ณ ที่จ่าย/ค่าบริษัท) — โครงการปกติ factor = 1
+  // โครงการผ่านบริษัท: ปัดขึ้นหลักร้อย (บริษัทออกส่วนต่างให้) → ยอดทีมลงท้าย 00
   // การหารสัดส่วนยังใช้ totalCost เต็มเป็นตัวส่วน → ทุกคนถูกลดตามสัดส่วนอัตโนมัติ
-  const pot = cappedPaid * getCompanyFactor(project);
+  const pot = roundTeamPot(project, cappedPaid * getCompanyFactor(project), cappedPaid);
 
   if (totalCost <= 0) {
     return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, reimburse: emptyReimburse(), total: 0 };

@@ -1,7 +1,7 @@
 'use client';
 
 import { MEMBERS, MemberId, Project, PaymentInstallment, PaymentRecord, RoundedShares,
-  getHorsePercent, getPoolPercent, calcNetRatio, calcRoundedShares, calcRoundedSharesDelta } from '@/types';
+  getHorsePercent, getPoolPercent, calcRoundedShares, calcRoundedSharesDelta } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 
 // แถวข้อมูลสมาชิกที่ตารางต้องใช้ (subset ของ memberShares ในหน้าโครงการ)
@@ -34,15 +34,15 @@ export function ActivityShareTable({
   roundedExpected: RoundedShares;
 }) {
   const hasDiscount = discountPercent > 0;
-  const reductionAmount = Math.max(0, totalCost - teamNetTotal); // ส่วนลด + ผ่านบริษัท รวมกัน
-  const hasAdjust = commissionAmount > 0 || hasReimburse || hasDiscount || companyPassThrough;
-  // ป้ายกำกับแถว "หัก" ตามรายการที่ถูกหักจริง
-  const deductLabels: string[] = [];
-  if (commissionAmount > 0) deductLabels.push(`Commission ${Math.round((1 - calcNetRatio(project)) * 10000) / 100}%`);
-  if (hasReimburse) deductLabels.push('สำรองค่าดำเนินการ');
-  if (hasDiscount) deductLabels.push(`ส่วนลด ${discountPercent}%`);
-  if (companyPassThrough) deductLabels.push('ผ่านบริษัท (VAT+ภาษี+ค่าบริษัท)');
-  const deductLabel = 'หัก ' + deductLabels.join(' + ');
+  const reductionAmount = Math.max(0, totalCost - teamNetTotal); // ส่วนลด/ผ่านบริษัท (ไม่รวม commission)
+  const hasReduction = reductionAmount > 0.5;
+  const hasAdjust = commissionAmount > 0 || hasReimburse || hasReduction;
+  // สัดส่วนที่ทีมเหลือ (หลังส่วนลด/ผ่านบริษัท) — ใช้แยกส่วน "หักจ่ายบริษัท" ออกจาก "หัก Commission"
+  const reductionRatio = totalCost > 0 ? teamNetTotal / totalCost : 1;
+  const afterRed = (raw: number) => Math.round(raw * reductionRatio); // ยอดหลังหักบริษัท/ส่วนลด (ก่อน commission)
+  const reductionLabel = companyPassThrough
+    ? 'หักจ่ายบริษัท (VAT + ภาษี + ค่าบริษัท)'
+    : `หัก ส่วนลด ${discountPercent}%`;
   return (
     <div>
       <div className="mb-2">
@@ -91,14 +91,26 @@ export function ActivityShareTable({
           </tr>
           {hasAdjust && (
             <>
-              {/* หัก = commission + สำรองค่าดำเนินการ + ส่วนลด (netAfterAdjust = rawTotal − หัก) */}
-              <tr className="text-rose-700 bg-rose-50">
-                <td className="px-3 py-1.5 text-xs">{deductLabel}</td>
-                <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount + reimburseSum + reductionAmount)}</td>
-                {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - roundedExpected.members[m.id])}</td>)}
-                <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - roundedExpected.horse)}</td>
-                <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - roundedExpected.pool)}</td>
-              </tr>
+              {/* แถวที่ 1: หักจ่ายบริษัท / ส่วนลด (แยกจาก commission เพื่อไม่สับสน) */}
+              {hasReduction && (
+                <tr className="text-sky-700 bg-sky-50">
+                  <td className="px-3 py-1.5 text-xs">{reductionLabel}</td>
+                  <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(reductionAmount + reimburseSum)}</td>
+                  {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - afterRed(m.rawTotal))}</td>)}
+                  <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - afterRed(horseRawTotal))}</td>
+                  <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - afterRed(poolRawTotal))}</td>
+                </tr>
+              )}
+              {/* แถวที่ 2: หัก Commission (เฉพาะ 3 สมาชิกหลัก — Manager/Pool ไม่โดน) */}
+              {commissionAmount > 0 && (
+                <tr className="text-rose-700 bg-rose-50">
+                  <td className="px-3 py-1.5 text-xs">หัก Commission</td>
+                  <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount)}</td>
+                  {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(Math.max(0, afterRed(m.rawTotal) - roundedExpected.members[m.id]))}</td>)}
+                  <td className="px-3 py-1.5 text-center text-xs">−฿0</td>
+                  <td className="px-3 py-1.5 text-center text-xs">−฿0</td>
+                </tr>
+              )}
               {hasReimburse && (
                 <tr className="text-emerald-700 bg-emerald-50">
                   <td className="px-3 py-1.5 text-xs">จ่ายคืนค่าดำเนินการ (ให้ผู้สำรอง)</td>

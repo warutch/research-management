@@ -418,9 +418,12 @@ export default function ProjectsPage() {
       const activities: Activity[] = defaultActs.map((act) => ({
         ...act,
         id: uuidv4(),
-        // โครงการผ่านบริษัท: Manager/Pool = 0% แล้วยก % ที่ปกติเป็นของ Manager+Pool ให้ Analyst (frank)
+        // โครงการผ่านบริษัท: Manager/Pool = 0% ยกให้ Analyst + ย้าย 5% จาก Coordinator → Analyst
         sharePercent: isCompany
-          ? { ...act.sharePercent, frank: act.sharePercent.frank + HORSE_PERCENT + POOL_PERCENT }
+          ? (() => {
+              const shift = Math.min(5, act.sharePercent.ton); // Coordinator −5 → Analyst +5 (ไม่ติดลบ)
+              return { ...act.sharePercent, frank: act.sharePercent.frank + HORSE_PERCENT + POOL_PERCENT + shift, ton: act.sharePercent.ton - shift };
+            })()
           : act.sharePercent,
         horsePercent: isCompany ? 0 : HORSE_PERCENT,
         poolPercent: isCompany ? 0 : POOL_PERCENT,

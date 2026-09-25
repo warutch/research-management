@@ -19,7 +19,13 @@ export default function CompanyTaxBreakdown({ project, received }: { project: Pr
     { label: 'บริษัทได้หลังหัก ณ ที่จ่าย', value: fmt(b.afterWht) },
     { label: 'หลังบริษัทส่ง VAT', value: fmt(b.afterVat) },
     { label: 'ค่าดำเนินการบริษัท', hint: `${b.feeRate}%`, value: `− ${fmt(b.companyFee)}` },
-    { tone: 'net', label: 'เหลือแบ่งทีม', value: fmt(b.net) },
+    ...(b.roundingBonus > 0.005
+      ? [
+          { label: 'เหลือแบ่งทีม (คำนวณ)', value: fmt(b.netRaw) },
+          { label: 'บริษัทปัดขึ้นให้ทีม (ลงท้าย 00)', value: `+ ${fmt(b.roundingBonus)}` },
+        ]
+      : []),
+    { tone: 'net' as const, label: 'เหลือแบ่งทีม', value: fmt(b.net) },
   ];
 
   return (
