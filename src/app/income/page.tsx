@@ -278,12 +278,20 @@ export default function IncomePage() {
   };
 
   const handleExportXlsx = async () => {
-    const { exportXlsxReport } = await import('@/lib/exportXlsx');
-    await exportXlsxReport(buildIncomeReport());
+    try {
+      const { exportXlsxReport } = await import('@/lib/exportXlsx');
+      await exportXlsxReport(buildIncomeReport());
+    } catch (e) {
+      toast.error(`Export Excel ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
+    }
   };
   const handleExportPdf = async () => {
-    const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
-    await exportTransferPdf(buildIncomeReport());
+    try {
+      const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
+      await exportTransferPdf(buildIncomeReport());
+    } catch (e) {
+      toast.error(`Export PDF ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
+    }
   };
 
   return (

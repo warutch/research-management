@@ -236,7 +236,15 @@ function recomputeFiltered(state: FilterableState) {
 
 // Logger — รวมทุก detail ไว้ในบรรทัดเดียวเพื่อให้ Next.js dev overlay แสดงได้ครบ
 // (overlay จะเห็นเฉพาะ arguments ของ console.error ครั้งแรก, ครั้งต่อไปเห็นเฉพาะใน browser DevTools console)
-function logErr(action: string, error: unknown) {
+// ตัด slip payload ออกจาก record ก่อน persist → คืนเป็น lazy (slipUrls=undefined)
+// hasSlip ยังคงไว้เพื่อให้ UI แสดงว่า "มี slip" (คลิกแล้วค่อย fetchSlipsFor)
+function stripSlip<T extends { slipUrl?: string; slipUrls?: string[]; hasSlip?: boolean }>(rec: T): T {
+  if (rec.slipUrls === undefined && !rec.slipUrl) return rec; // lazy อยู่แล้ว
+  const hasSlip = rec.hasSlip ?? ((rec.slipUrls?.length ?? 0) > 0 || !!rec.slipUrl);
+  return { ...rec, slipUrl: '', slipUrls: undefined, hasSlip };
+}
+
+function logErr(action: string, error: unknown, notify = true) {
   if (!error) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = error as any;
@@ -270,8 +278,9 @@ function logErr(action: string, error: unknown) {
   // First console.error: ใส่ทุกอย่างในบรรทัดเดียว (Next.js overlay จะเห็น)
   console.error(`[Supabase] ${action} error:`, summary, { info: errorInfo, raw: e, type: `${typeof e}/${e?.constructor?.name || '?'}` });
 
-  // แจ้ง user เมื่อ write ล้มเหลว (ไม่ใช่ read/load) — กัน "UI ขึ้นสำเร็จ แต่ DB ไม่อัปเดต"
-  if (!/^load/i.test(action)) {
+  // แจ้ง user เมื่อ write ล้มเหลว (ไม่ใช่ read/load/fetch) — กัน "UI ขึ้นสำเร็จ แต่ DB ไม่อัปเดต"
+  // notify=false → caller จัดการ toast เอง (กัน toast ซ้ำ เช่น pool handlers, cleanup deletes)
+  if (notify && !/^(load|fetch)/i.test(action)) {
     const short = typeof summary === 'string' ? summary.slice(0, 90) : '';
     toast.error(`⚠️ บันทึกขึ้น cloud ไม่สำเร็จ (${action})\n${short}\nข้อมูลอยู่ในเครื่องชั่วคราว — ลองใหม่หรือกด Reload`, { duration: 7000 });
   }
@@ -297,6 +306,7 @@ async function insertProjectRetry(project: Project) {
   }
 }
 async function updateProjectRetry(id: string, data: Partial<Project>) {
+  if (!data || Object.keys(data).length === 0) return; // ไม่มีอะไรอัปเดต
   for (let i = 0; i < 5; i++) {
     const { error } = await supabase.from('projects').update(projectPatchToDb(data)).eq('id', id);
     if (!error) return;
@@ -622,9 +632,9 @@ export const useStore = create<AppState>()(persist(
     });
     supabase.from('projects').delete().eq('id', id).then(({ error }) => logErr('deleteProject', error));
     // ลบ related rows ด้วย (เผื่อ DB ไม่มี FK ON DELETE CASCADE → กัน orphan)
-    supabase.from('payments').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject payments', error));
-    supabase.from('distributions').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject distributions', error));
-    supabase.from('quotations').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject quotations', error));
+    supabase.from('payments').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject payments', error, false));
+    supabase.from('distributions').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject distributions', error, false));
+    supabase.from('quotations').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject quotations', error, false));
     supabase.from('tracking_activities').delete().eq('project_id', id).then(({ error }) => { if (error && !isTableMissingError(error, 'tracking_activities')) logErr('deleteProject tracking', error); });
   },
 
@@ -881,7 +891,7 @@ export const useStore = create<AppState>()(persist(
     set((state) => ({ poolTransactions: [tx, ...state.poolTransactions] }));
     supabase.from('pool_transactions').insert(poolTxToDb(tx)).then(({ error }) => {
       if (!error) return;
-      logErr('addPoolTransaction', error);
+      logErr('addPoolTransaction', error, false);
       // Rollback state
       set((state) => ({ poolTransactions: state.poolTransactions.filter((t) => t.id !== id) }));
       // Detect table missing → helpful hint
@@ -908,7 +918,7 @@ export const useStore = create<AppState>()(persist(
     if (!updated) return;
     supabase.from('pool_transactions').update(poolTxToDb(updated)).eq('id', id).then(({ error }) => {
       if (!error) return;
-      logErr('updatePoolTransaction', error);
+      logErr('updatePoolTransaction', error, false);
       // Rollback
       if (prev) {
         set((state) => ({ poolTransactions: state.poolTransactions.map((t) => (t.id === id ? prev : t)) }));
@@ -927,7 +937,7 @@ export const useStore = create<AppState>()(persist(
     set((state) => ({ poolTransactions: state.poolTransactions.filter((t) => t.id !== id) }));
     supabase.from('pool_transactions').delete().eq('id', id).then(({ error }) => {
       if (!error) return;
-      logErr('deletePoolTransaction', error);
+      logErr('deletePoolTransaction', error, false);
       // Rollback (คืน record ที่ลบไว้)
       if (prev) {
         set((state) => ({ poolTransactions: [prev, ...state.poolTransactions] }));
@@ -1000,11 +1010,13 @@ export const useStore = create<AppState>()(persist(
   // Persist เฉพาะ raw data + filters — ไม่รวม derived views (recompute เอง) และ dataLoaded (บังคับ refetch)
   partialize: (state) => ({
     _allProjects: state._allProjects,
-    _allPayments: state._allPayments,
-    _allDistributions: state._allDistributions,
+    // ตัด slip payload (base64 หนัก) ออกก่อน persist — คืนเป็น lazy (slipUrls=undefined)
+    // ป้องกัน localStorage เต็ม quota เมื่อ fetchSlipsFor merge slip เข้า state
+    _allPayments: state._allPayments.map(stripSlip),
+    _allDistributions: state._allDistributions.map(stripSlip),
     _allQuotations: state._allQuotations,
     _allTrackingActivities: state._allTrackingActivities,
-    poolTransactions: state.poolTransactions,
+    poolTransactions: state.poolTransactions.map(stripSlip),
     typeFilter: state.typeFilter,
     statusFilter: state.statusFilter,
     yearFilter: state.yearFilter,

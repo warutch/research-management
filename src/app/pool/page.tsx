@@ -97,8 +97,14 @@ export default function PoolPage() {
     setModalOpen(true);
   };
 
-  const openEdit = (tx: PoolTransaction) => {
+  const openEdit = async (tx: PoolTransaction) => {
     setEditingId(tx.id);
+    // ถ้า slip ยัง lazy (undefined) และมี slip อยู่จริง → โหลดก่อน
+    // เพื่อไม่ให้ save ทับ slip ใน DB เป็น [] (data loss)
+    let slipUrls = tx.slipUrls;
+    if (slipUrls === undefined) {
+      slipUrls = tx.hasSlip ? await fetchSlipsFor('pool_tx', tx.id) : [];
+    }
     setForm({
       type: tx.type,
       amount: tx.amount,
@@ -108,7 +114,7 @@ export default function PoolPage() {
       recipientMemberId: tx.recipientMemberId,
       recipientName: tx.recipientName || '',
       description: tx.description,
-      slipUrls: tx.slipUrls || [],
+      slipUrls,
     });
     setModalOpen(true);
   };

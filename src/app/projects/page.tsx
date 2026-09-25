@@ -278,9 +278,13 @@ export default function ProjectsPage() {
   useEffect(() => {
     const idFromUrl = searchParams.get('id');
     // ใช้ id จาก URL ครั้งเดียวต่อค่า — กันไม่ให้เด้ง selection กลับทุกครั้งที่ข้อมูลเปลี่ยน
-    if (idFromUrl && idFromUrl !== appliedUrlIdRef.current && sortedProjects.some((p) => p.id === idFromUrl)) {
+    if (!idFromUrl || idFromUrl === appliedUrlIdRef.current) return;
+    if (sortedProjects.some((p) => p.id === idFromUrl)) {
       appliedUrlIdRef.current = idFromUrl;
       setSelectedProjectId(idFromUrl);
+    } else if (useStore.getState()._allProjects.some((p) => p.id === idFromUrl)) {
+      // โครงการมีอยู่จริงแต่ถูกซ่อนด้วยตัวกรองปี → ล้างตัวกรองปีก่อน แล้วรอ sortedProjects อัปเดต
+      useStore.getState().setYearFilter('all');
     }
   }, [searchParams, sortedProjects]);
 
@@ -380,12 +384,20 @@ export default function ProjectsPage() {
   };
 
   const handleExportProjectXlsx = async (project: Project) => {
-    const { exportXlsxReport } = await import('@/lib/exportXlsx');
-    await exportXlsxReport(buildProjectReport(project));
+    try {
+      const { exportXlsxReport } = await import('@/lib/exportXlsx');
+      await exportXlsxReport(buildProjectReport(project));
+    } catch (e) {
+      toast.error(`Export Excel ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
+    }
   };
   const handleExportProjectPdf = async (project: Project) => {
-    const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
-    await exportTransferPdf(buildProjectReport(project));
+    try {
+      const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
+      await exportTransferPdf(buildProjectReport(project));
+    } catch (e) {
+      toast.error(`Export PDF ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
+    }
   };
 
   const handleSaveDistribution = (projectId: string) => {
@@ -570,10 +582,16 @@ export default function ProjectsPage() {
     setEditingPaymentId(null);
   };
 
-  const handleEditPayment = (projectId: string, payment: PaymentRecord) => {
-    // ถ้ายังเป็น slipUrl เก่า → migrate เป็น slipUrls array
-    const slipUrls = (payment.slipUrls && payment.slipUrls.length > 0)
-      ? payment.slipUrls
+  const handleEditPayment = async (projectId: string, payment: PaymentRecord) => {
+    // ถ้า slip ยัง lazy (undefined) และมี slip อยู่จริง → โหลดก่อน
+    // เพื่อไม่ให้ save ทับ slip ใน DB เป็น [] (data loss)
+    let loaded = payment.slipUrls;
+    if (loaded === undefined) {
+      loaded = payment.hasSlip ? await fetchSlipsFor('payment', payment.id) : [];
+    }
+    // migrate slipUrl เก่า → slipUrls array
+    const slipUrls = (loaded && loaded.length > 0)
+      ? loaded
       : (payment.slipUrl ? [payment.slipUrl] : []);
     setPaymentForm({ projectId: payment.projectId, installmentId: payment.installmentId, amount: payment.amount, paidDate: payment.paidDate, slipUrl: payment.slipUrl, slipUrls, note: payment.note });
     setEditingPaymentId(payment.id);
@@ -720,8 +738,13 @@ export default function ProjectsPage() {
       {/* Project selector (dropdown) + detail */}
       {sortedProjects.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <p className="text-gray-400 mb-2">ยังไม่มีโครงการ</p>
-          <p className="text-gray-400 text-sm">กดปุ่ม &quot;เพิ่มโครงการ&quot; เพื่อเริ่มต้น</p>
+          <p className="text-gray-400 mb-4">ยังไม่มีโครงการ</p>
+          <button
+            onClick={openNewProjectForm}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 shadow"
+          >
+            <Plus size={16} /> เพิ่มโครงการแรก
+          </button>
         </div>
       ) : (
         <div>
@@ -1427,6 +1450,9 @@ export default function ProjectsPage() {
                             const grandTotal = totalCost;
                             const grandTotalRaw = memberShares.reduce((s, m) => s + m.rawTotal, 0) + horseRawTotal + poolRawTotal;
                             const memberSumRaw = memberShares.reduce((s, m) => s + m.rawTotal, 0);
+                            // จ่ายคืนค่าดำเนินการ (แยกออกจาก commission เพื่อไม่ปนกันในตารางสรุป)
+                            const reimburseSum = memberShares.reduce((s, m) => s + m.reimburseTotal, 0) + roundedExpected.reimburse.horse + roundedExpected.reimburse.pool;
+                            const hasReimburse = reimburseSum > 0.5;
 
                             return (
                               <div className="space-y-4">
@@ -1588,21 +1614,31 @@ export default function ProjectsPage() {
                                         </tr>
                                       ))}
                                       <tr className="font-bold text-gray-900 bg-gray-50 border-t-2 border-gray-300">
-                                        <td className="px-3 py-2">{commissionAmount > 0 ? 'รวม (ก่อนหัก commission)' : 'รวมทั้งหมด'}</td>
+                                        <td className="px-3 py-2">{(commissionAmount > 0 || hasReimburse) ? 'รวมส่วนแบ่งกิจกรรม' : 'รวมทั้งหมด'}</td>
                                         <td className="px-3 py-2 text-right">{formatCurrency(totalCost)}</td>
                                         {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.rawTotal)}</td>)}
                                         <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseRawTotal)}</td>
                                         <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolRawTotal)}</td>
                                       </tr>
-                                      {commissionAmount > 0 && (
+                                      {(commissionAmount > 0 || hasReimburse) && (
                                         <>
+                                          {/* หัก = commission + ส่วนสำรองค่าดำเนินการที่หักก่อนแบ่ง (netAfterCommission = rawTotal − หัก) */}
                                           <tr className="text-rose-700 bg-rose-50">
-                                            <td className="px-3 py-1.5 text-xs">หัก Commission (จากสมาชิก {Math.round((1 - calcNetRatio(project)) * 10000) / 100}%)</td>
-                                            <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount)}</td>
-                                            {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - m.total)}</td>)}
-                                            <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - horseTotal)}</td>
-                                            <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - poolTotal)}</td>
+                                            <td className="px-3 py-1.5 text-xs">{commissionAmount > 0 && hasReimburse ? 'หัก Commission + สำรองค่าดำเนินการ' : commissionAmount > 0 ? `หัก Commission (จากสมาชิก ${Math.round((1 - calcNetRatio(project)) * 10000) / 100}%)` : 'หัก สำรองค่าดำเนินการ (ก่อนแบ่ง)'}</td>
+                                            <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount + reimburseSum)}</td>
+                                            {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - roundedExpected.members[m.id])}</td>)}
+                                            <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - roundedExpected.horse)}</td>
+                                            <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - roundedExpected.pool)}</td>
                                           </tr>
+                                          {hasReimburse && (
+                                            <tr className="text-emerald-700 bg-emerald-50">
+                                              <td className="px-3 py-1.5 text-xs">จ่ายคืนค่าดำเนินการ (ให้ผู้สำรอง)</td>
+                                              <td className="px-3 py-1.5 text-right text-xs">+{formatCurrency(reimburseSum)}</td>
+                                              {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">{m.reimburseTotal > 0 ? `+${formatCurrency(m.reimburseTotal)}` : '—'}</td>)}
+                                              <td className="px-3 py-1.5 text-center text-xs">{roundedExpected.reimburse.horse > 0 ? `+${formatCurrency(roundedExpected.reimburse.horse)}` : '—'}</td>
+                                              <td className="px-3 py-1.5 text-center text-xs">{roundedExpected.reimburse.pool > 0 ? `+${formatCurrency(roundedExpected.reimburse.pool)}` : '—'}</td>
+                                            </tr>
+                                          )}
                                           <tr className="font-bold text-indigo-900 bg-indigo-50 border-t-2 border-indigo-200">
                                             <td className="px-3 py-2">รวมสุทธิ (ที่ต้องโอน)</td>
                                             <td className="px-3 py-2 text-right">{formatCurrency(totalCost - commissionAmount)}</td>
@@ -1651,10 +1687,10 @@ export default function ProjectsPage() {
                                                   <span className={instPaid >= inst.amount && inst.amount > 0 ? 'text-green-600 font-medium' : instPaid > 0 ? 'text-blue-600' : 'text-gray-400'}>{formatCurrency(instPaid)}</span>
                                                 </td>
                                                 {memberShares.map((m) => (
-                                                  <td key={m.id} className="px-3 py-2 text-center text-xs" style={{ color: m.color }}>{formatCurrency(delta.members[m.id])}</td>
+                                                  <td key={m.id} className="px-3 py-2 text-center text-xs" style={{ color: m.color }}>{formatCurrency(delta.members[m.id] + (delta.reimburse[m.id] || 0))}</td>
                                                 ))}
-                                                <td className="px-3 py-2 text-center text-xs text-amber-600">{formatCurrency(delta.horse)}</td>
-                                                <td className="px-3 py-2 text-center text-xs text-gray-500">{formatCurrency(delta.pool)}</td>
+                                                <td className="px-3 py-2 text-center text-xs text-amber-600">{formatCurrency(delta.horse + (delta.reimburse.horse || 0))}</td>
+                                                <td className="px-3 py-2 text-center text-xs text-gray-500">{formatCurrency(delta.pool + (delta.reimburse.pool || 0))}</td>
                                                 {commissionAmount > 0 && <td className="px-3 py-2 text-center text-xs text-rose-600">{formatCurrency(delta.commission)}</td>}
                                               </tr>
                                             );

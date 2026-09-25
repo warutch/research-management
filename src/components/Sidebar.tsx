@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import { useAuth, signOut } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { paymentFromDb, distributionFromDb, poolTxFromDb } from '@/lib/supabaseSync';
 import { toast } from '@/components/Toast';
 
 const navItems = [
@@ -42,7 +43,7 @@ export default function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { projects, quotations, trackingActivities, migrateFromLocalStorage, reloadAllData } = useStore();
+  const { migrateFromLocalStorage, reloadAllData } = useStore();
   const [reloading, setReloading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const { user } = useAuth();
@@ -110,15 +111,19 @@ export default function Sidebar() {
       }
       toast.dismiss(t3);
 
+      // สำคัญ: backup ต้องเป็น "ทั้งหมด" (ไม่ใช่เฉพาะที่ filter อยู่) → ใช้ _all arrays
+      // และแปลง raw DB rows (snake_case) → camelCase ให้ schema เดียวกับ store
+      // ไม่งั้นตอน import (migrateFromLocalStorage → *ToDb) จะได้ project_id=undefined
+      const st = useStore.getState();
       const data = {
         version: 2,
         exportedAt: new Date().toISOString(),
-        projects,
-        quotations,
-        payments,
-        distributions,
-        poolTransactions,
-        trackingActivities,
+        projects: st._allProjects,
+        quotations: st._allQuotations,
+        payments: payments.map(paymentFromDb),
+        distributions: distributions.map(distributionFromDb),
+        poolTransactions: poolTransactions.map(poolTxFromDb),
+        trackingActivities: st._allTrackingActivities,
       };
       const jsonStr = JSON.stringify(data, null, 2);
       const sizeMB = (new Blob([jsonStr]).size / 1024 / 1024).toFixed(2);
