@@ -327,12 +327,25 @@ function friendlyErrorMessage(info: Record<string, unknown>, isEmpty: boolean): 
   return raw.slice(0, 100);
 }
 
+// เตือน user ครั้งเดียวต่อ column ว่า DB ยังไม่มี column นั้น (migration ยังไม่รัน)
+// เดิมแค่ console.warn → ผู้ใช้ไม่เห็น เลยงงว่าทำไมข้อมูลไม่บันทึก
+const missingColumnToasted = new Set<string>();
+function warnMissingColumn(field: string, migration: string) {
+  if (missingColumnToasted.has(field)) return;
+  missingColumnToasted.add(field);
+  toast.error(
+    `⚠️ ฐานข้อมูลยังไม่มีคอลัมน์ "${field}" — ค่านี้จะไม่ถูกบันทึกขึ้น cloud\n` +
+    `กรุณารัน migration: supabase/${migration} ใน Supabase → SQL Editor`,
+    { duration: 12000 },
+  );
+}
+
 // มาร์ค column ที่หายจาก DB (migration ยังไม่รัน) แล้วบอกว่าเจอไหม → ใช้ retry
 function markIfMissingColumn(error: unknown): boolean {
-  if (isWorkspaceMissingError(error)) { markWorkspaceColumnMissing(); return true; }
-  if (isCommissionMissingError(error)) { markCommissionColumnMissing(); return true; }
-  if (isDiscountMissingError(error)) { markDiscountColumnMissing(); return true; }
-  if (isExpensesMissingError(error)) { markExpensesColumnMissing(); return true; }
+  if (isWorkspaceMissingError(error)) { markWorkspaceColumnMissing(); warnMissingColumn('workspace', 'add_personal_workspace.sql'); return true; }
+  if (isCommissionMissingError(error)) { markCommissionColumnMissing(); warnMissingColumn('commission', 'schema.sql'); return true; }
+  if (isDiscountMissingError(error)) { markDiscountColumnMissing(); warnMissingColumn('discount (ส่วนลด)', 'add_project_discount.sql'); return true; }
+  if (isExpensesMissingError(error)) { markExpensesColumnMissing(); warnMissingColumn('expenses (ค่าดำเนินการ)', 'add_project_expenses.sql'); return true; }
   return false;
 }
 
