@@ -211,8 +211,8 @@ export default function IncomePage() {
     }] : []),
   ];
 
-  // Export Excel — เงินที่ต้องโอนให้สมาชิกแต่ละคน (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
-  const handleExportXlsx = async () => {
+  // Export — เงินที่ต้องโอนให้สมาชิกแต่ละคน (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
+  const buildIncomeReport = (): import('@/lib/exportXlsx').XlsxReportOptions => {
     const recipients: { id: RecipientId; name: string }[] = [
       ...MEMBERS.map((m) => ({ id: m.id as RecipientId, name: m.name })),
       { id: 'horse', name: 'Manager' },
@@ -251,8 +251,7 @@ export default function IncomePage() {
       }
     }
 
-    const { exportXlsxReport } = await import('@/lib/exportXlsx');
-    await exportXlsxReport({
+    return {
       filename: `เงินต้องโอนสมาชิก-${new Date().toISOString().slice(0, 10)}.xlsx`,
       sheetName: 'เงินต้องโอน',
       title: 'รายงานเงินที่ต้องโอนให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)',
@@ -275,17 +274,32 @@ export default function IncomePage() {
           moneyCols: [4, 5, 6],
         },
       ],
-    });
+    };
+  };
+
+  const handleExportXlsx = async () => {
+    const { exportXlsxReport } = await import('@/lib/exportXlsx');
+    await exportXlsxReport(buildIncomeReport());
+  };
+  const handleExportPdf = async () => {
+    const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
+    await exportTransferPdf(buildIncomeReport());
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={handleExportPdf}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+        >
+          <Download size={16} /> PDF (A4)
+        </button>
         <button
           onClick={handleExportXlsx}
           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
         >
-          <Download size={16} /> Export เงินต้องโอน (Excel)
+          <Download size={16} /> Excel
         </button>
       </div>
       {/* Member Cards */}

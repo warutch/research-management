@@ -315,8 +315,8 @@ export default function ProjectsPage() {
     setExpenseForm({ name: '', amount: 0, paidBy: '' });
   };
 
-  // Export Excel — เงินที่ต้องโอนให้สมาชิกของโครงการนี้ (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
-  const handleExportProjectXlsx = async (project: Project) => {
+  // Export — เงินที่ต้องโอนให้สมาชิกของโครงการนี้ (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
+  const buildProjectReport = (project: Project): import('@/lib/exportXlsx').XlsxReportOptions => {
     const recipients: { id: RecipientId; name: string }[] = [
       ...MEMBERS.map((m) => ({ id: m.id as RecipientId, name: m.name })),
       { id: 'horse', name: 'Manager' },
@@ -364,8 +364,7 @@ export default function ProjectsPage() {
       });
     }
 
-    const { exportXlsxReport } = await import('@/lib/exportXlsx');
-    await exportXlsxReport({
+    return {
       filename: `โอนเงิน-${project.projectCode || project.id}.xlsx`,
       sheetName: 'โอนเงิน',
       title: 'รายงานการโอนเงินให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)',
@@ -377,7 +376,16 @@ export default function ProjectsPage() {
         ['หมายเหตุ', 'ต้องโอนรวม = ส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ'],
       ],
       sections,
-    });
+    };
+  };
+
+  const handleExportProjectXlsx = async (project: Project) => {
+    const { exportXlsxReport } = await import('@/lib/exportXlsx');
+    await exportXlsxReport(buildProjectReport(project));
+  };
+  const handleExportProjectPdf = async (project: Project) => {
+    const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
+    await exportTransferPdf(buildProjectReport(project));
   };
 
   const handleSaveDistribution = (projectId: string) => {
@@ -1432,7 +1440,8 @@ export default function ProjectsPage() {
                                       <div className="flex items-center justify-between gap-2 mb-3">
                                         <h5 className="text-sm font-semibold text-gray-700">สรุปส่วนแบ่ง (จากเงินที่รับมาแล้ว {formatCurrency(totalPaidReal)})</h5>
                                         <div className="flex items-center gap-2 shrink-0">
-                                          <button onClick={() => handleExportProjectXlsx(project)} title="Export Excel เงินที่ต้องโอนของโครงการนี้" className="flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"><Download size={14} /> Export</button>
+                                          <button onClick={() => handleExportProjectPdf(project)} title="Export PDF A4 (สำหรับปริ้น)" className="flex items-center gap-1 px-3 py-1.5 text-xs border border-indigo-300 text-indigo-600 rounded-lg hover:bg-indigo-50"><Download size={14} /> PDF</button>
+                                          <button onClick={() => handleExportProjectXlsx(project)} title="Export Excel เงินที่ต้องโอนของโครงการนี้" className="flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"><Download size={14} /> Excel</button>
                                           {editMode && <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>}
                                         </div>
                                       </div>
