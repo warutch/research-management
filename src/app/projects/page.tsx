@@ -323,11 +323,10 @@ export default function ProjectsPage() {
       { id: 'pool', name: 'Pool money' },
       { id: 'commission', name: 'Commission' },
     ];
-    const pick = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
-      id === 'commission' ? rs.commission
-        : id === 'horse' ? rs.horse + rs.reimburse.horse
-        : id === 'pool' ? rs.pool + rs.reimburse.pool
-        : (rs.members[id as MemberId] || 0) + (rs.reimburse[id as MemberId] || 0);
+    const profitOf = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
+      id === 'commission' ? rs.commission : id === 'horse' ? rs.horse : id === 'pool' ? rs.pool : (rs.members[id as MemberId] || 0);
+    const reimbOf = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
+      id === 'commission' ? 0 : (rs.reimburse[id] || 0);
 
     const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
     const projTotalCost = project.activities.reduce((s, a) => s + a.cost, 0);
@@ -335,23 +334,24 @@ export default function ProjectsPage() {
     const rNow = calcRoundedShares(project, clientPaid);
 
     const rows: (string | number)[][] = [];
-    const totals = { expected: 0, shouldPay: 0, actual: 0, outstanding: 0 };
+    const totals = { expected: 0, profit: 0, reimb: 0, shouldPay: 0, actual: 0, outstanding: 0 };
     for (const r of recipients) {
-      const expected = pick(rExp, r.id);
-      const sp = pick(rNow, r.id);
+      const expected = profitOf(rExp, r.id) + reimbOf(rExp, r.id);
+      const pf = profitOf(rNow, r.id), rb = reimbOf(rNow, r.id);
+      const sp = pf + rb;
       const act = distributions.filter((d) => d.projectId === project.id && d.recipientId === r.id).reduce((s, d) => s + d.amount, 0);
       if (expected <= 0 && act <= 0) continue;
       const out = Math.max(0, sp - act);
-      rows.push([r.name, expected, sp, act, out]);
-      totals.expected += expected; totals.shouldPay += sp; totals.actual += act; totals.outstanding += out;
+      rows.push([r.name, expected, pf, rb, sp, act, out]);
+      totals.expected += expected; totals.profit += pf; totals.reimb += rb; totals.shouldPay += sp; totals.actual += act; totals.outstanding += out;
     }
 
     const sections = [{
       title: 'ส่วนแบ่งรายผู้รับ',
-      headers: ['ผู้รับเงิน', 'ควรได้ทั้งโครงการ', 'ต้องโอน (ตามที่จ่าย)', 'โอนแล้ว', 'ต้องโอนตอนนี้'],
+      headers: ['ผู้รับเงิน', 'ควรได้ทั้งโครงการ', 'ส่วนแบ่งกำไร', 'จ่ายคืนค่าดำเนินการ', 'ต้องโอนรวม (ตามที่จ่าย)', 'โอนแล้ว', 'ต้องโอนตอนนี้'],
       rows,
-      moneyCols: [1, 2, 3, 4],
-      totalRow: ['รวม', totals.expected, totals.shouldPay, totals.actual, totals.outstanding],
+      moneyCols: [1, 2, 3, 4, 5, 6],
+      totalRow: ['รวม', totals.expected, totals.profit, totals.reimb, totals.shouldPay, totals.actual, totals.outstanding],
     }];
     const expenses = project.expenses || [];
     if (expenses.length > 0) {
@@ -374,6 +374,7 @@ export default function ProjectsPage() {
         ['ผู้วิจัย', project.client || '-'],
         ['เงินที่รับมาแล้ว', `${clientPaid.toLocaleString()} จากทั้งหมด ${projTotalCost.toLocaleString()} บาท`],
         ['วันที่ export', new Date().toLocaleDateString('en-GB')],
+        ['หมายเหตุ', 'ต้องโอนรวม = ส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ'],
       ],
       sections,
     });

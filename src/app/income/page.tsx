@@ -219,32 +219,35 @@ export default function IncomePage() {
       { id: 'pool', name: 'Pool money' },
       { id: 'commission', name: 'Commission' },
     ];
-    const pick = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
-      id === 'commission' ? rs.commission
-        : id === 'horse' ? rs.horse + rs.reimburse.horse
-        : id === 'pool' ? rs.pool + rs.reimburse.pool
-        : (rs.members[id as MemberId] || 0) + (rs.reimburse[id as MemberId] || 0);
+    // แยกส่วน "กำไร" กับ "จ่ายคืนค่าดำเนินการ"
+    const profitOf = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
+      id === 'commission' ? rs.commission : id === 'horse' ? rs.horse : id === 'pool' ? rs.pool : (rs.members[id as MemberId] || 0);
+    const reimbOf = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
+      id === 'commission' ? 0 : (rs.reimburse[id] || 0);
 
     const summary: (string | number)[][] = [];
     const detail: (string | number)[][] = [];
-    const totals = { expected: 0, shouldPay: 0, actual: 0, outstanding: 0 };
+    const totals = { expected: 0, profit: 0, reimb: 0, shouldPay: 0, actual: 0, outstanding: 0 };
 
     for (const r of recipients) {
-      let expected = 0, shouldPay = 0, actual = 0;
+      let expected = 0, profit = 0, reimb = 0, actual = 0;
       for (const project of filteredProjects) {
         const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-        expected += pick(calcRoundedExpected(project), r.id);
-        const sp = pick(calcRoundedShares(project, clientPaid), r.id);
-        shouldPay += sp;
+        const rExp = calcRoundedExpected(project);
+        const rNow = calcRoundedShares(project, clientPaid);
+        expected += profitOf(rExp, r.id) + reimbOf(rExp, r.id);
+        const pf = profitOf(rNow, r.id), rb = reimbOf(rNow, r.id);
+        profit += pf; reimb += rb;
         const act = distributions.filter((d) => d.projectId === project.id && d.recipientId === r.id).reduce((s, d) => s + d.amount, 0);
         actual += act;
-        const out = Math.max(0, sp - act);
-        if (out > 0) detail.push([r.name, project.projectCode || '', project.name, project.client || '', out]);
+        const out = Math.max(0, (pf + rb) - act);
+        if (out > 0) detail.push([r.name, project.projectCode || '', project.name, project.client || '', pf, rb, out]);
       }
+      const shouldPay = profit + reimb;
       const outstanding = Math.max(0, shouldPay - actual);
       if (expected > 0 || actual > 0) {
-        summary.push([r.name, expected, shouldPay, actual, outstanding]);
-        totals.expected += expected; totals.shouldPay += shouldPay; totals.actual += actual; totals.outstanding += outstanding;
+        summary.push([r.name, expected, profit, reimb, shouldPay, actual, outstanding]);
+        totals.expected += expected; totals.profit += profit; totals.reimb += reimb; totals.shouldPay += shouldPay; totals.actual += actual; totals.outstanding += outstanding;
       }
     }
 
@@ -253,20 +256,23 @@ export default function IncomePage() {
       filename: `เงินต้องโอนสมาชิก-${new Date().toISOString().slice(0, 10)}.xlsx`,
       sheetName: 'เงินต้องโอน',
       title: 'รายงานเงินที่ต้องโอนให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)',
-      meta: [['วันที่ export', new Date().toLocaleDateString('en-GB')]],
+      meta: [
+        ['วันที่ export', new Date().toLocaleDateString('en-GB')],
+        ['หมายเหตุ', 'ต้องโอนรวม = ส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ'],
+      ],
       sections: [
         {
           title: 'สรุปรายผู้รับ',
-          headers: ['ผู้รับเงิน', 'ควรได้ทั้งโครงการ', 'ต้องโอน (ตามที่ลูกค้าจ่าย)', 'โอนแล้ว', 'คงค้างต้องโอนตอนนี้'],
+          headers: ['ผู้รับเงิน', 'ควรได้ทั้งโครงการ', 'ส่วนแบ่งกำไร', 'จ่ายคืนค่าดำเนินการ', 'ต้องโอนรวม (ตามที่จ่าย)', 'โอนแล้ว', 'คงค้างต้องโอนตอนนี้'],
           rows: summary,
-          moneyCols: [1, 2, 3, 4],
-          totalRow: ['รวม', totals.expected, totals.shouldPay, totals.actual, totals.outstanding],
+          moneyCols: [1, 2, 3, 4, 5, 6],
+          totalRow: ['รวม', totals.expected, totals.profit, totals.reimb, totals.shouldPay, totals.actual, totals.outstanding],
         },
         {
           title: 'รายละเอียดรายโครงการ (เฉพาะที่ยังต้องโอน)',
-          headers: ['ผู้รับเงิน', 'รหัสโครงการ', 'โครงการ', 'ผู้วิจัย', 'ต้องโอนตอนนี้'],
-          rows: detail.length > 0 ? detail : [['(ไม่มีรายการค้างโอน)', '', '', '', '']],
-          moneyCols: [4],
+          headers: ['ผู้รับเงิน', 'รหัสโครงการ', 'โครงการ', 'ผู้วิจัย', 'ส่วนแบ่งกำไร', 'จ่ายคืนค่าดำเนินการ', 'ต้องโอนตอนนี้'],
+          rows: detail.length > 0 ? detail : [['(ไม่มีรายการค้างโอน)', '', '', '', '', '', '']],
+          moneyCols: [4, 5, 6],
         },
       ],
     });
