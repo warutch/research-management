@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcTotalExpenses } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcTotalExpenses, calcProjectNetTotal } from '@/types';
 import { formatCurrency, formatAmount, formatDate, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/utils';
 import { exportReportXlsx, exportReportPdf } from '@/lib/reportExport';
 import { Plus, Pencil, Trash2, X, Save, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Loader2 } from 'lucide-react';
@@ -1440,8 +1440,10 @@ export default function ProjectsPage() {
                             const poolShouldPayNow = roundedNow.pool + roundedNow.reimburse.pool;
                             const commissionShouldPay = roundedNow.commission;
 
-                            // grandTotal = totalCost (= cappedPaid เมื่อจ่ายครบ)
-                            const grandTotal = totalCost;
+                            // grandTotal = ยอดสุทธิที่ลูกค้าต้องจ่ายจริง (หลังส่วนลด) = เพดานเงินที่นำมาแบ่ง
+                            const netTotal = calcProjectNetTotal(project);
+                            const grandTotal = netTotal;
+                            const discountPercent = Math.min(100, Math.max(0, project.discount ?? 0));
                             // จ่ายคืนค่าดำเนินการ (แยกออกจาก commission เพื่อไม่ปนกันในตารางสรุป)
                             const reimburseSum = memberShares.reduce((s, m) => s + m.reimburseTotal, 0) + roundedExpected.reimburse.horse + roundedExpected.reimburse.pool;
                             const hasReimburse = reimburseSum > 0.5;
@@ -1471,6 +1473,8 @@ export default function ProjectsPage() {
                                   project={project}
                                   memberShares={memberShares}
                                   totalCost={totalCost}
+                                  netTotal={netTotal}
+                                  discountPercent={discountPercent}
                                   commissionAmount={commissionAmount}
                                   hasReimburse={hasReimburse}
                                   reimburseSum={reimburseSum}

@@ -151,6 +151,18 @@ export function calcProjectTotalCost(project: Project): number {
   return project.activities.reduce((s, a) => s + a.cost, 0);
 }
 
+// ตัวคูณส่วนลด (0–1) — เช่น discount 10% → 0.9
+export function getDiscountFactor(project: Project): number {
+  const d = Math.min(100, Math.max(0, project.discount ?? 0));
+  return 1 - d / 100;
+}
+
+// ยอดสุทธิที่ลูกค้าต้องจ่ายจริง (หลังหักส่วนลด) = ค่าบริการ × ตัวคูณส่วนลด
+// ใช้เป็นเพดานของเงินที่นำมาแบ่ง (การแบ่งสัดส่วนยังใช้ค่าบริการเต็มเป็นฐาน จึงลดตามสัดส่วนอัตโนมัติ)
+export function calcProjectNetTotal(project: Project): number {
+  return calcProjectTotalCost(project) * getDiscountFactor(project);
+}
+
 // รายได้ดิบของสมาชิก (ยังไม่หัก commission) — สำหรับโครงการ
 export function calcMemberRawIncome(project: Project, memberId: MemberId): number {
   return project.activities.reduce((s, a) => s + (a.cost * (a.sharePercent[memberId] || 0)) / 100, 0);
@@ -291,8 +303,11 @@ function emptyReimburse(): Record<RecipientId, number> {
 }
 
 export function calcRoundedShares(project: Project, clientPaid: number): RoundedShares {
-  const totalCost = calcProjectTotalCost(project);
-  const cappedPaid = Math.min(totalCost, Math.max(0, clientPaid));
+  const totalCost = calcProjectTotalCost(project); // ค่าบริการเต็ม — ฐานของสัดส่วนการแบ่ง
+  // เพดานเงินที่นำมาแบ่ง = ยอดสุทธิหลังส่วนลด (เงินที่ลูกค้าต้องจ่ายจริง)
+  // การหารสัดส่วนยังใช้ totalCost เต็มเป็นตัวส่วน → ทุกคนจึงถูกลดตามสัดส่วนส่วนลดอัตโนมัติ
+  const netTotal = calcProjectNetTotal(project);
+  const cappedPaid = Math.min(netTotal, Math.max(0, clientPaid));
 
   if (totalCost <= 0) {
     return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, reimburse: emptyReimburse(), total: 0 };

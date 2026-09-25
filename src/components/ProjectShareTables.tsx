@@ -15,12 +15,14 @@ export interface MemberShareRow {
 
 // ---- ตารางแบ่งตามกิจกรรม + สรุปหัก commission / จ่ายคืน ----
 export function ActivityShareTable({
-  project, memberShares, totalCost, commissionAmount, hasReimburse, reimburseSum,
+  project, memberShares, totalCost, netTotal, discountPercent, commissionAmount, hasReimburse, reimburseSum,
   horseRawTotal, poolRawTotal, horseTotal, poolTotal, roundedExpected,
 }: {
   project: Project;
   memberShares: MemberShareRow[];
   totalCost: number;
+  netTotal: number;
+  discountPercent: number;
   commissionAmount: number;
   hasReimburse: boolean;
   reimburseSum: number;
@@ -30,6 +32,15 @@ export function ActivityShareTable({
   poolTotal: number;
   roundedExpected: RoundedShares;
 }) {
+  const hasDiscount = discountPercent > 0;
+  const discountAmount = Math.max(0, totalCost - netTotal); // ยอดส่วนลด (บาท)
+  const hasAdjust = commissionAmount > 0 || hasReimburse || hasDiscount;
+  // ป้ายกำกับแถว "หัก" ตามรายการที่ถูกหักจริง
+  const deductLabels: string[] = [];
+  if (commissionAmount > 0) deductLabels.push(`Commission ${Math.round((1 - calcNetRatio(project)) * 10000) / 100}%`);
+  if (hasReimburse) deductLabels.push('สำรองค่าดำเนินการ');
+  if (hasDiscount) deductLabels.push(`ส่วนลด ${discountPercent}%`);
+  const deductLabel = 'หัก ' + deductLabels.join(' + ');
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -65,18 +76,18 @@ export function ActivityShareTable({
             </tr>
           ))}
           <tr className="font-bold text-gray-900 bg-gray-50 border-t-2 border-gray-300">
-            <td className="px-3 py-2">{(commissionAmount > 0 || hasReimburse) ? 'รวมส่วนแบ่งกิจกรรม' : 'รวมทั้งหมด'}</td>
+            <td className="px-3 py-2">{hasAdjust ? 'รวมส่วนแบ่งกิจกรรม' : 'รวมทั้งหมด'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(totalCost)}</td>
             {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.rawTotal)}</td>)}
             <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseRawTotal)}</td>
             <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolRawTotal)}</td>
           </tr>
-          {(commissionAmount > 0 || hasReimburse) && (
+          {hasAdjust && (
             <>
-              {/* หัก = commission + ส่วนสำรองค่าดำเนินการที่หักก่อนแบ่ง (netAfterCommission = rawTotal − หัก) */}
+              {/* หัก = commission + สำรองค่าดำเนินการ + ส่วนลด (netAfterAdjust = rawTotal − หัก) */}
               <tr className="text-rose-700 bg-rose-50">
-                <td className="px-3 py-1.5 text-xs">{commissionAmount > 0 && hasReimburse ? 'หัก Commission + สำรองค่าดำเนินการ' : commissionAmount > 0 ? `หัก Commission (จากสมาชิก ${Math.round((1 - calcNetRatio(project)) * 10000) / 100}%)` : 'หัก สำรองค่าดำเนินการ (ก่อนแบ่ง)'}</td>
-                <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount + reimburseSum)}</td>
+                <td className="px-3 py-1.5 text-xs">{deductLabel}</td>
+                <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount + reimburseSum + discountAmount)}</td>
                 {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - roundedExpected.members[m.id])}</td>)}
                 <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - roundedExpected.horse)}</td>
                 <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - roundedExpected.pool)}</td>
@@ -91,8 +102,8 @@ export function ActivityShareTable({
                 </tr>
               )}
               <tr className="font-bold text-indigo-900 bg-indigo-50 border-t-2 border-indigo-200">
-                <td className="px-3 py-2">รวมสุทธิ (ที่ต้องโอน)</td>
-                <td className="px-3 py-2 text-right">{formatCurrency(totalCost - commissionAmount)}</td>
+                <td className="px-3 py-2">รวมสุทธิ (ที่ต้องโอน){hasDiscount && <span className="font-normal text-[11px] text-rose-400"> หลังหักส่วนลด {discountPercent}%</span>}</td>
+                <td className="px-3 py-2 text-right">{formatCurrency(netTotal - commissionAmount)}</td>
                 {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.total)}</td>)}
                 <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseTotal)}</td>
                 <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolTotal)}</td>
