@@ -244,6 +244,23 @@ function stripSlip<T extends { slipUrl?: string; slipUrls?: string[]; hasSlip?: 
   return { ...rec, slipUrl: '', slipUrls: undefined, hasSlip };
 }
 
+// ระยะเวลาที่ให้กด "เลิกทำ" ก่อนลบจริงบน DB (deferred delete)
+const UNDO_MS = 6000;
+
+// แสดง toast พร้อมปุ่มเลิกทำ + คืน commit จริงหลังหมดเวลา
+// onUndo: คืนสถานะใน state, commit: ยิงลบจริงบน DB
+function deferredDelete(message: string, onUndo: () => void, commit: () => void) {
+  let undone = false;
+  const timer = setTimeout(() => { if (!undone) commit(); }, UNDO_MS);
+  toast.success(message, {
+    duration: UNDO_MS,
+    action: {
+      label: 'เลิกทำ',
+      onClick: () => { undone = true; clearTimeout(timer); onUndo(); },
+    },
+  });
+}
+
 function logErr(action: string, error: unknown, notify = true) {
   if (!error) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -643,6 +660,15 @@ export const useStore = create<AppState>()(persist(
   },
 
   deleteProject: (id) => {
+    const st = get();
+    // snapshot ทุก record ที่เกี่ยวข้อง (สำหรับเลิกทำ)
+    const prevProject = st._allProjects.find((p) => p.id === id);
+    if (!prevProject) return;
+    const prevQuotations = st._allQuotations.filter((q) => q.projectId === id);
+    const prevPayments = st._allPayments.filter((p) => p.projectId === id);
+    const prevDistributions = st._allDistributions.filter((d) => d.projectId === id);
+    const prevTracking = st._allTrackingActivities.filter((t) => t.projectId === id);
+
     set((state) => {
       const _allProjects = state._allProjects.filter((p) => p.id !== id);
       const _allQuotations = state._allQuotations.filter((q) => q.projectId !== id);
@@ -654,12 +680,29 @@ export const useStore = create<AppState>()(persist(
         ...recomputeFiltered({ ...state, _allProjects, _allQuotations, _allPayments, _allDistributions, _allTrackingActivities }),
       };
     });
-    supabase.from('projects').delete().eq('id', id).then(({ error }) => logErr('deleteProject', error));
-    // ลบ related rows ด้วย (เผื่อ DB ไม่มี FK ON DELETE CASCADE → กัน orphan)
-    supabase.from('payments').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject payments', error, false));
-    supabase.from('distributions').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject distributions', error, false));
-    supabase.from('quotations').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject quotations', error, false));
-    supabase.from('tracking_activities').delete().eq('project_id', id).then(({ error }) => { if (error && !isTableMissingError(error, 'tracking_activities')) logErr('deleteProject tracking', error); });
+
+    deferredDelete(
+      `ลบโครงการ "${prevProject.name}" แล้ว`,
+      () => set((state) => {
+        const _allProjects = [prevProject, ...state._allProjects];
+        const _allQuotations = [...prevQuotations, ...state._allQuotations];
+        const _allPayments = [...state._allPayments, ...prevPayments];
+        const _allDistributions = [...state._allDistributions, ...prevDistributions];
+        const _allTrackingActivities = [...state._allTrackingActivities, ...prevTracking];
+        return {
+          _allProjects, _allQuotations, _allPayments, _allDistributions, _allTrackingActivities,
+          ...recomputeFiltered({ ...state, _allProjects, _allQuotations, _allPayments, _allDistributions, _allTrackingActivities }),
+        };
+      }),
+      () => {
+        supabase.from('projects').delete().eq('id', id).then(({ error }) => logErr('deleteProject', error));
+        // ลบ related rows ด้วย (เผื่อ DB ไม่มี FK ON DELETE CASCADE → กัน orphan)
+        supabase.from('payments').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject payments', error, false));
+        supabase.from('distributions').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject distributions', error, false));
+        supabase.from('quotations').delete().eq('project_id', id).then(({ error }) => logErr('deleteProject quotations', error, false));
+        supabase.from('tracking_activities').delete().eq('project_id', id).then(({ error }) => { if (error && !isTableMissingError(error, 'tracking_activities')) logErr('deleteProject tracking', error, false); });
+      },
+    );
   },
 
   // ============ Activities (JSONB inside project) ============
@@ -813,11 +856,17 @@ export const useStore = create<AppState>()(persist(
   },
 
   deletePayment: (id) => {
+    const prev = get()._allPayments.find((p) => p.id === id);
+    if (!prev) return;
     set((state) => {
       const _allPayments = state._allPayments.filter((p) => p.id !== id);
       return { _allPayments, ...recomputeFiltered({ ...state, _allPayments }) };
     });
-    supabase.from('payments').delete().eq('id', id).then(({ error }) => logErr('deletePayment', error));
+    deferredDelete(
+      'ลบรายการชำระเงินแล้ว',
+      () => set((state) => { const _allPayments = [...state._allPayments, prev]; return { _allPayments, ...recomputeFiltered({ ...state, _allPayments }) }; }),
+      () => supabase.from('payments').delete().eq('id', id).then(({ error }) => logErr('deletePayment', error)),
+    );
   },
 
   // ============ Distributions ============
@@ -842,11 +891,17 @@ export const useStore = create<AppState>()(persist(
   },
 
   deleteDistribution: (id) => {
+    const prev = get()._allDistributions.find((d) => d.id === id);
+    if (!prev) return;
     set((state) => {
       const _allDistributions = state._allDistributions.filter((d) => d.id !== id);
       return { _allDistributions, ...recomputeFiltered({ ...state, _allDistributions }) };
     });
-    supabase.from('distributions').delete().eq('id', id).then(({ error }) => logErr('deleteDistribution', error));
+    deferredDelete(
+      'ลบรายการโอนเงินแล้ว',
+      () => set((state) => { const _allDistributions = [...state._allDistributions, prev]; return { _allDistributions, ...recomputeFiltered({ ...state, _allDistributions }) }; }),
+      () => supabase.from('distributions').delete().eq('id', id).then(({ error }) => logErr('deleteDistribution', error)),
+    );
   },
 
   // ============ Quotations ============
@@ -871,11 +926,17 @@ export const useStore = create<AppState>()(persist(
   },
 
   deleteQuotation: (id) => {
+    const prev = get()._allQuotations.find((q) => q.id === id);
+    if (!prev) return;
     set((state) => {
       const _allQuotations = state._allQuotations.filter((q) => q.id !== id);
       return { _allQuotations, ...recomputeFiltered({ ...state, _allQuotations }) };
     });
-    supabase.from('quotations').delete().eq('id', id).then(({ error }) => logErr('deleteQuotation', error));
+    deferredDelete(
+      'ลบใบเสนอราคาแล้ว',
+      () => set((state) => { const _allQuotations = [prev, ...state._allQuotations]; return { _allQuotations, ...recomputeFiltered({ ...state, _allQuotations }) }; }),
+      () => supabase.from('quotations').delete().eq('id', id).then(({ error }) => logErr('deleteQuotation', error)),
+    );
   },
 
   // ============ Tracking Activities ============
@@ -900,11 +961,17 @@ export const useStore = create<AppState>()(persist(
   },
 
   deleteTrackingActivity: (id) => {
+    const prev = get()._allTrackingActivities.find((t) => t.id === id);
+    if (!prev) return;
     set((state) => {
       const _allTrackingActivities = state._allTrackingActivities.filter((t) => t.id !== id);
       return { _allTrackingActivities, ...recomputeFiltered({ ...state, _allTrackingActivities }) };
     });
-    supabase.from('tracking_activities').delete().eq('id', id).then(({ error }) => logErr('deleteTrackingActivity', error));
+    deferredDelete(
+      'ลบ Activity แล้ว',
+      () => set((state) => { const _allTrackingActivities = [...state._allTrackingActivities, prev]; return { _allTrackingActivities, ...recomputeFiltered({ ...state, _allTrackingActivities }) }; }),
+      () => supabase.from('tracking_activities').delete().eq('id', id).then(({ error }) => logErr('deleteTrackingActivity', error)),
+    );
   },
 
   // ============ Pool Transactions (เงินกองกลาง — ไม่ผูกโครงการ) ============
@@ -956,22 +1023,24 @@ export const useStore = create<AppState>()(persist(
   },
 
   deletePoolTransaction: (id) => {
-    // เก็บ snapshot ก่อนลบ (สำหรับ rollback)
     const prev = get().poolTransactions.find((t) => t.id === id);
+    if (!prev) return;
     set((state) => ({ poolTransactions: state.poolTransactions.filter((t) => t.id !== id) }));
-    supabase.from('pool_transactions').delete().eq('id', id).then(({ error }) => {
-      if (!error) return;
-      logErr('deletePoolTransaction', error, false);
-      // Rollback (คืน record ที่ลบไว้)
-      if (prev) {
+    deferredDelete(
+      'ลบรายการเงินกองกลางแล้ว',
+      () => set((state) => ({ poolTransactions: [prev, ...state.poolTransactions] })),
+      () => supabase.from('pool_transactions').delete().eq('id', id).then(({ error }) => {
+        if (!error) return;
+        logErr('deletePoolTransaction', error, false);
+        // ลบจริงล้มเหลว → คืน record กลับ state
         set((state) => ({ poolTransactions: [prev, ...state.poolTransactions] }));
-      }
-      if (isTableMissingError(error, 'pool_transactions')) {
-        toast.error('⚠️ ยังไม่ได้สร้าง table pool_transactions ใน Supabase — โปรดรัน schema.sql', { duration: 10000 });
-      } else {
-        toast.error(`ลบไม่สำเร็จ: ${(error as { message?: string })?.message || 'unknown error'}`);
-      }
-    });
+        if (isTableMissingError(error, 'pool_transactions')) {
+          toast.error('⚠️ ยังไม่ได้สร้าง table pool_transactions ใน Supabase — โปรดรัน schema.sql', { duration: 10000 });
+        } else {
+          toast.error(`ลบไม่สำเร็จ: ${(error as { message?: string })?.message || 'unknown error'}`);
+        }
+      }),
+    );
   },
 
   // ============ Migration: LocalStorage → Supabase ============

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, RecipientId, TrackingActivity, Project, ProjectStatus, getHorsePercent, getPoolPercent, PRIORITY_LABELS, PRIORITY_COLORS } from '@/types';
+import { MEMBERS, RecipientId, TrackingActivity, Project, ProjectStatus, getHorsePercent, getPoolPercent, getOutstanding, PRIORITY_LABELS, PRIORITY_COLORS } from '@/types';
 import Link from 'next/link';
 import { formatCurrency, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { useHydrated } from '@/lib/useHydrated';
@@ -109,6 +109,16 @@ export default function DashboardPage() {
   const grandTotalCost = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + a.cost, 0), 0);
   const totalClientPaid = payments.reduce((s, p) => s + p.amount, 0);
   const totalDistributed = distributions.reduce((s, d) => s + d.amount, 0);
+
+  // "ต้องโอนตอนนี้" ที่แม่นยำ — ใช้ selector กลาง (R4) รวมทุกผู้รับ ตามสัดส่วนเงินที่ลูกค้าชำระแล้ว − ที่โอนไปแล้ว
+  const PAYOUT_RECIPIENTS: RecipientId[] = ['tangmo', 'frank', 'ton', 'horse', 'pool', 'commission'];
+  const totalOutstandingNow = projects.reduce(
+    (sum, project) => sum + PAYOUT_RECIPIENTS.reduce((s, rid) => s + getOutstanding(project, rid, payments, distributions), 0),
+    0,
+  );
+  const projectsWithOutstanding = projects.filter(
+    (project) => PAYOUT_RECIPIENTS.some((rid) => getOutstanding(project, rid, payments, distributions) > 0),
+  ).length;
 
   // Tracking stats
   const todayMs = new Date().setHours(0, 0, 0, 0);
@@ -591,14 +601,16 @@ export default function DashboardPage() {
               </div>
               <p className="text-[10px] text-blue-600 mt-1">{totalClientPaid > 0 ? Math.round(totalDistributed / totalClientPaid * 100) : 0}% จากที่รับมา</p>
             </div>
-            <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border border-amber-200 p-4">
+            <Link href="/income" className="block bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border border-amber-200 p-4 hover:shadow-md hover:border-amber-300 transition-all">
               <div className="flex items-center gap-2 mb-1">
                 <ClipboardList size={16} className="text-amber-600" />
-                <span className="text-xs text-amber-800 font-medium">รอโอนให้สมาชิก</span>
+                <span className="text-xs text-amber-800 font-medium">ต้องโอนตอนนี้ (ตามที่ลูกค้าชำระแล้ว)</span>
               </div>
-              <span className="text-xl font-bold text-amber-700">{formatCurrency(Math.max(0, totalClientPaid - totalDistributed))}</span>
-              <p className="text-[10px] text-amber-600 mt-2">ใบเสนอราคา {quotations.length} รายการ</p>
-            </div>
+              <span className="text-xl font-bold text-amber-700">{formatCurrency(totalOutstandingNow)}</span>
+              <p className="text-[10px] text-amber-600 mt-2">
+                {totalOutstandingNow > 0 ? `ค้างโอนใน ${projectsWithOutstanding} โครงการ — กดเพื่อจัดการ →` : '✓ โอนครบตามที่รับมาแล้ว'}
+              </p>
+            </Link>
           </div>
 
           {/* Chart */}

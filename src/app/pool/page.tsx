@@ -139,9 +139,8 @@ export default function PoolPage() {
   };
 
   const handleDelete = (tx: PoolTransaction) => {
-    if (!confirm(`ลบรายการ "${POOL_TX_LABELS[tx.type]} ${formatCurrency(tx.amount)}"?`)) return;
+    // ไม่ต้อง confirm — ลบแล้วมีปุ่ม "เลิกทำ" ให้กู้คืนได้ (6 วินาที)
     deletePoolTransaction(tx.id);
-    toast.success('ลบรายการเรียบร้อย');
   };
 
   // ============ derived state ============

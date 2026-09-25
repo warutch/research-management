@@ -378,6 +378,46 @@ export function calcRoundedSharesDelta(project: Project, beforeCumulative: numbe
   };
 }
 
+// ============================================================
+// Selector กลางสำหรับ "ยอดที่ต้องโอน" — รวม logic ที่เดิมเขียนซ้ำหลายหน้า (R4)
+// ป้องกันบั๊ก "ยอดไม่ตรงกันระหว่างตาราง" เพราะคำนวณคนละที่
+// ============================================================
+
+// ส่วนแบ่งของ recipient หนึ่งราย (กำไร + จ่ายคืนค่าดำเนินการ) จาก RoundedShares
+export function recipientShare(s: RoundedShares, rid: RecipientId): number {
+  const reimb = s.reimburse[rid] || 0;
+  if (rid === 'horse') return s.horse + reimb;
+  if (rid === 'pool') return s.pool + reimb;
+  if (rid === 'commission') return s.commission;
+  return (s.members[rid as MemberId] || 0) + reimb;
+}
+
+// ยอดเงินที่ลูกค้าชำระมาแล้วของโครงการ
+export function getClientPaid(projectId: string, payments: PaymentRecord[]): number {
+  return payments.filter((p) => p.projectId === projectId).reduce((s, p) => s + p.amount, 0);
+}
+
+// ยอดที่ควรโอนให้ recipient "ตอนนี้" (ตามสัดส่วนเงินที่ลูกค้าชำระแล้ว, rounded, รวมจ่ายคืน)
+export function getPayableNow(project: Project, rid: RecipientId, payments: PaymentRecord[]): number {
+  const clientPaid = getClientPaid(project.id, payments);
+  return recipientShare(calcRoundedShares(project, clientPaid), rid);
+}
+
+// ยอดที่ควรโอนให้ recipient "เมื่อจ่ายครบ" (รวมจ่ายคืน)
+export function getPayableExpected(project: Project, rid: RecipientId): number {
+  return recipientShare(calcRoundedExpected(project), rid);
+}
+
+// ยอดที่โอนให้ recipient ไปแล้ว (จาก distributions)
+export function getDistributed(projectId: string, rid: RecipientId, distributions: DistributionRecord[]): number {
+  return distributions.filter((d) => d.projectId === projectId && d.recipientId === rid).reduce((s, d) => s + d.amount, 0);
+}
+
+// ยอดคงค้างที่ยังต้องโอนให้ recipient (ตามที่ลูกค้าชำระแล้ว − ที่โอนไปแล้ว, ไม่ติดลบ)
+export function getOutstanding(project: Project, rid: RecipientId, payments: PaymentRecord[], distributions: DistributionRecord[]): number {
+  return Math.max(0, getPayableNow(project, rid, payments) - getDistributed(project.id, rid, distributions));
+}
+
 export interface QuotationItem {
   id: string;
   description: string;
