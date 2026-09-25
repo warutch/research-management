@@ -11,19 +11,13 @@ export default function CompanyTaxBreakdown({ project, received }: { project: Pr
   const b = calcCompanyBreakdown(project, gross);
   const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const rows: { label: string; value: string; hint?: string; tone?: 'head' | 'net' }[] = [
+  const rows: { label: string; value: string; hint?: string; tone?: 'head' | 'net' | 'add' }[] = [
     { tone: 'head', label: 'ยอดเรียกเก็บ (รวม VAT)', value: fmt(b.gross) },
-    { label: 'ค่าบริการก่อน VAT', value: fmt(b.preVat) },
-    { label: 'VAT', hint: `${b.vatRate}%`, value: fmt(b.vat) },
-    { label: 'หัก ณ ที่จ่าย', hint: `${b.whtRate}%`, value: `− ${fmt(b.wht)}` },
-    { label: 'บริษัทได้หลังหัก ณ ที่จ่าย', value: fmt(b.afterWht) },
-    { label: 'หลังบริษัทส่ง VAT', value: fmt(b.afterVat) },
-    { label: 'ค่าดำเนินการบริษัท', hint: `${b.feeRate}%`, value: `− ${fmt(b.companyFee)}` },
+    { label: 'หัก ภาษี ณ ที่จ่าย', hint: `${b.whtRate}%`, value: `− ${fmt(b.wht)}` },
+    { label: 'หัก VAT นำส่งสรรพากร', hint: `${b.vatRate}%`, value: `− ${fmt(b.vat)}` },
+    { label: 'หัก ค่าดำเนินการบริษัท', hint: `${b.feeRate}%`, value: `− ${fmt(b.companyFee)}` },
     ...(b.roundingBonus > 0.005
-      ? [
-          { label: 'เหลือแบ่งทีม (คำนวณ)', value: fmt(b.netRaw) },
-          { label: 'บริษัทปัดขึ้นให้ทีม (ลงท้าย 00)', value: `+ ${fmt(b.roundingBonus)}` },
-        ]
+      ? [{ tone: 'add' as const, label: 'ส่วนลดค่าดำเนินงาน', value: `+ ${fmt(b.roundingBonus)}` }]
       : []),
     { tone: 'net' as const, label: 'เหลือแบ่งทีม', value: fmt(b.net) },
   ];
@@ -31,10 +25,10 @@ export default function CompanyTaxBreakdown({ project, received }: { project: Pr
   return (
     <div className="bg-white rounded-lg border p-4">
       <h5 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5"><Building2 size={15} className="text-sky-600" /> เงินผ่านบริษัท (หักภาษี/ค่าบริษัทก่อนแบ่งทีม)</h5>
-      <p className="text-xs text-gray-400 mb-3">ลูกค้าโอนยอดเรียกเก็บ (รวม VAT) → ผ่านบริษัทหัก VAT + หัก ณ ที่จ่าย + ค่าดำเนินการ → เหลือเป็นเงินที่นำมาแบ่งทีม</p>
+      <p className="text-xs text-gray-400 mb-3">ยอดเรียกเก็บรวม VAT (ค่าบริการ {fmt(b.preVat)} + VAT {fmt(b.vat)}) → หักภาษี ณ ที่จ่าย + VAT นำส่ง + ค่าดำเนินการบริษัท → เหลือเป็นเงินแบ่งทีม</p>
       <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
         {rows.map((r, i) => (
-          <div key={i} className={`flex items-center justify-between px-3 py-1.5 text-sm ${r.tone === 'head' ? 'bg-sky-50 font-semibold text-gray-800' : r.tone === 'net' ? 'bg-emerald-50 font-bold text-emerald-800' : 'text-gray-600'}`}>
+          <div key={i} className={`flex items-center justify-between px-3 py-1.5 text-sm ${r.tone === 'head' ? 'bg-sky-50 font-semibold text-gray-800' : r.tone === 'net' ? 'bg-emerald-50 font-bold text-emerald-800' : r.tone === 'add' ? 'text-emerald-600' : 'text-gray-600'}`}>
             <span>{r.label}{r.hint && <span className="text-xs text-gray-400"> {r.hint}</span>}</span>
             <span className="tabular-nums">{r.value} <span className="text-xs text-gray-400">บาท</span></span>
           </div>
