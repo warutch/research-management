@@ -315,12 +315,8 @@ export default function ProjectsPage() {
     setExpenseForm({ name: '', amount: 0, paidBy: '' });
   };
 
-  // Export CSV — เงินที่ต้องโอนให้สมาชิกของโครงการนี้ (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
-  const handleExportProjectCsv = (project: Project) => {
-    const csvCell = (v: string | number) => {
-      const s = String(v ?? '');
-      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
+  // Export Excel — เงินที่ต้องโอนให้สมาชิกของโครงการนี้ (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
+  const handleExportProjectXlsx = async (project: Project) => {
     const recipients: { id: RecipientId; name: string }[] = [
       ...MEMBERS.map((m) => ({ id: m.id as RecipientId, name: m.name })),
       { id: 'horse', name: 'Manager' },
@@ -338,40 +334,49 @@ export default function ProjectsPage() {
     const rExp = calcRoundedExpected(project);
     const rNow = calcRoundedShares(project, clientPaid);
 
-    const rows: string[] = [];
+    const rows: (string | number)[][] = [];
+    const totals = { expected: 0, shouldPay: 0, actual: 0, outstanding: 0 };
     for (const r of recipients) {
       const expected = pick(rExp, r.id);
       const sp = pick(rNow, r.id);
       const act = distributions.filter((d) => d.projectId === project.id && d.recipientId === r.id).reduce((s, d) => s + d.amount, 0);
       if (expected <= 0 && act <= 0) continue;
-      rows.push([r.name, expected, sp, act, Math.max(0, sp - act)].map(csvCell).join(','));
+      const out = Math.max(0, sp - act);
+      rows.push([r.name, expected, sp, act, out]);
+      totals.expected += expected; totals.shouldPay += sp; totals.actual += act; totals.outstanding += out;
     }
 
-    const lines: string[] = [];
-    lines.push('รายงานการโอนเงินให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)');
-    lines.push(`โครงการ,${csvCell(`${project.projectCode || ''} ${project.name}`)}`);
-    lines.push(`ผู้วิจัย,${csvCell(project.client || '-')}`);
-    lines.push(`เงินที่รับมาแล้ว,${clientPaid} จากทั้งหมด ${projTotalCost}`);
-    lines.push(`วันที่ export,${new Date().toLocaleDateString('en-GB')}`);
-    lines.push('');
-    lines.push('ผู้รับเงิน,ควรได้ทั้งโครงการ,ต้องโอน(ตามที่จ่าย),โอนแล้ว,ต้องโอนตอนนี้');
-    lines.push(...rows);
+    const sections = [{
+      title: 'ส่วนแบ่งรายผู้รับ',
+      headers: ['ผู้รับเงิน', 'ควรได้ทั้งโครงการ', 'ต้องโอน (ตามที่จ่าย)', 'โอนแล้ว', 'ต้องโอนตอนนี้'],
+      rows,
+      moneyCols: [1, 2, 3, 4],
+      totalRow: ['รวม', totals.expected, totals.shouldPay, totals.actual, totals.outstanding],
+    }];
     const expenses = project.expenses || [];
     if (expenses.length > 0) {
-      lines.push('');
-      lines.push('== ค่าดำเนินการ (หักก่อนแบ่ง แล้วจ่ายคืน) ==');
-      lines.push('รายการ,จำนวน,จ่ายคืนให้');
-      lines.push(...expenses.map((e) => [e.name, e.amount, ALL_SHARE_NAMES[e.paidBy]].map(csvCell).join(',')));
+      sections.push({
+        title: 'ค่าดำเนินการ (หักก่อนแบ่ง แล้วจ่ายคืน)',
+        headers: ['รายการ', 'จำนวน', 'จ่ายคืนให้'],
+        rows: expenses.map((e) => [e.name, e.amount, ALL_SHARE_NAMES[e.paidBy]]),
+        moneyCols: [1],
+        totalRow: ['รวมค่าดำเนินการ', calcTotalExpenses(project), ''],
+      });
     }
 
-    const csv = '﻿' + lines.join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `โอนเงิน-${project.projectCode || project.id}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const { exportXlsxReport } = await import('@/lib/exportXlsx');
+    await exportXlsxReport({
+      filename: `โอนเงิน-${project.projectCode || project.id}.xlsx`,
+      sheetName: 'โอนเงิน',
+      title: 'รายงานการโอนเงินให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)',
+      meta: [
+        ['โครงการ', `${project.projectCode || ''} ${project.name}`],
+        ['ผู้วิจัย', project.client || '-'],
+        ['เงินที่รับมาแล้ว', `${clientPaid.toLocaleString()} จากทั้งหมด ${projTotalCost.toLocaleString()} บาท`],
+        ['วันที่ export', new Date().toLocaleDateString('en-GB')],
+      ],
+      sections,
+    });
   };
 
   const handleSaveDistribution = (projectId: string) => {
@@ -1426,7 +1431,7 @@ export default function ProjectsPage() {
                                       <div className="flex items-center justify-between gap-2 mb-3">
                                         <h5 className="text-sm font-semibold text-gray-700">สรุปส่วนแบ่ง (จากเงินที่รับมาแล้ว {formatCurrency(totalPaidReal)})</h5>
                                         <div className="flex items-center gap-2 shrink-0">
-                                          <button onClick={() => handleExportProjectCsv(project)} title="Export CSV เงินที่ต้องโอนของโครงการนี้" className="flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"><Download size={14} /> Export</button>
+                                          <button onClick={() => handleExportProjectXlsx(project)} title="Export Excel เงินที่ต้องโอนของโครงการนี้" className="flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"><Download size={14} /> Export</button>
                                           {editMode && <button onClick={() => { setShowDistForm(project.id); setDistForm({ projectId: project.id, recipientId: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"><Plus size={14} /> เพิ่มรายการโอน</button>}
                                         </div>
                                       </div>

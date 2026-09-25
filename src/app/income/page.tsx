@@ -211,12 +211,8 @@ export default function IncomePage() {
     }] : []),
   ];
 
-  // Export CSV — เงินที่ต้องโอนให้สมาชิกแต่ละคน (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
-  const handleExportCsv = () => {
-    const csvCell = (v: string | number) => {
-      const s = String(v ?? '');
-      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
+  // Export Excel — เงินที่ต้องโอนให้สมาชิกแต่ละคน (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
+  const handleExportXlsx = async () => {
     const recipients: { id: RecipientId; name: string }[] = [
       ...MEMBERS.map((m) => ({ id: m.id as RecipientId, name: m.name })),
       { id: 'horse', name: 'Manager' },
@@ -229,59 +225,61 @@ export default function IncomePage() {
         : id === 'pool' ? rs.pool + rs.reimburse.pool
         : (rs.members[id as MemberId] || 0) + (rs.reimburse[id as MemberId] || 0);
 
-    const summary: string[] = [];
-    const detail: string[] = [];
+    const summary: (string | number)[][] = [];
+    const detail: (string | number)[][] = [];
     const totals = { expected: 0, shouldPay: 0, actual: 0, outstanding: 0 };
 
     for (const r of recipients) {
       let expected = 0, shouldPay = 0, actual = 0;
       for (const project of filteredProjects) {
         const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-        const exp = pick(calcRoundedExpected(project), r.id);
+        expected += pick(calcRoundedExpected(project), r.id);
         const sp = pick(calcRoundedShares(project, clientPaid), r.id);
+        shouldPay += sp;
         const act = distributions.filter((d) => d.projectId === project.id && d.recipientId === r.id).reduce((s, d) => s + d.amount, 0);
-        expected += exp; shouldPay += sp; actual += act;
+        actual += act;
         const out = Math.max(0, sp - act);
-        if (out > 0) detail.push([r.name, project.projectCode || '', project.name, project.client || '', out].map(csvCell).join(','));
+        if (out > 0) detail.push([r.name, project.projectCode || '', project.name, project.client || '', out]);
       }
       const outstanding = Math.max(0, shouldPay - actual);
       if (expected > 0 || actual > 0) {
-        summary.push([r.name, expected, shouldPay, actual, outstanding].map(csvCell).join(','));
+        summary.push([r.name, expected, shouldPay, actual, outstanding]);
         totals.expected += expected; totals.shouldPay += shouldPay; totals.actual += actual; totals.outstanding += outstanding;
       }
     }
 
-    const lines: string[] = [];
-    lines.push('รายงานเงินที่ต้องโอนให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)');
-    lines.push(`วันที่ export,${new Date().toLocaleDateString('en-GB')}`);
-    lines.push('');
-    lines.push('== สรุปรายผู้รับ ==');
-    lines.push('ผู้รับเงิน,ควรได้ทั้งโครงการ,ต้องโอน(ตามที่ลูกค้าจ่าย),โอนแล้ว,คงค้างต้องโอนตอนนี้');
-    lines.push(...summary);
-    lines.push(['รวม', totals.expected, totals.shouldPay, totals.actual, totals.outstanding].map(csvCell).join(','));
-    lines.push('');
-    lines.push('== รายละเอียดรายโครงการ (เฉพาะที่ยังต้องโอน) ==');
-    lines.push('ผู้รับเงิน,รหัสโครงการ,โครงการ,ผู้วิจัย,ต้องโอนตอนนี้');
-    lines.push(...(detail.length > 0 ? detail : ['(ไม่มีรายการค้างโอน)']));
-
-    const csv = '﻿' + lines.join('\r\n'); // BOM ให้ Excel อ่านภาษาไทยถูก
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `เงินต้องโอนสมาชิก-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const { exportXlsxReport } = await import('@/lib/exportXlsx');
+    await exportXlsxReport({
+      filename: `เงินต้องโอนสมาชิก-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      sheetName: 'เงินต้องโอน',
+      title: 'รายงานเงินที่ต้องโอนให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)',
+      meta: [['วันที่ export', new Date().toLocaleDateString('en-GB')]],
+      sections: [
+        {
+          title: 'สรุปรายผู้รับ',
+          headers: ['ผู้รับเงิน', 'ควรได้ทั้งโครงการ', 'ต้องโอน (ตามที่ลูกค้าจ่าย)', 'โอนแล้ว', 'คงค้างต้องโอนตอนนี้'],
+          rows: summary,
+          moneyCols: [1, 2, 3, 4],
+          totalRow: ['รวม', totals.expected, totals.shouldPay, totals.actual, totals.outstanding],
+        },
+        {
+          title: 'รายละเอียดรายโครงการ (เฉพาะที่ยังต้องโอน)',
+          headers: ['ผู้รับเงิน', 'รหัสโครงการ', 'โครงการ', 'ผู้วิจัย', 'ต้องโอนตอนนี้'],
+          rows: detail.length > 0 ? detail : [['(ไม่มีรายการค้างโอน)', '', '', '', '']],
+          moneyCols: [4],
+        },
+      ],
+    });
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
         <button
-          onClick={handleExportCsv}
+          onClick={handleExportXlsx}
           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
         >
-          <Download size={16} /> Export เงินต้องโอน (CSV)
+          <Download size={16} /> Export เงินต้องโอน (Excel)
         </button>
       </div>
       {/* Member Cards */}
