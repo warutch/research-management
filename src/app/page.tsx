@@ -45,7 +45,7 @@ const STATUS_COLORS = {
 
 export default function DashboardPage() {
   const hydrated = useHydrated();
-  const { projects, payments, distributions, quotations, trackingActivities, updateTrackingActivity, deleteTrackingActivity, updateProject } = useStore();
+  const { projects, payments, distributions, trackingActivities, updateTrackingActivity, deleteTrackingActivity, updateProject } = useStore();
 
   // Modal state for editing tracking activity
   const [editingActivity, setEditingActivity] = useState<TrackingActivity | null>(null);

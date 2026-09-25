@@ -161,6 +161,7 @@ export function projectFromDb(row: any): Project {
     activities: row.activities || [],
     installments: row.installments || [],
     createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || undefined,
     type: normalizeProjectType(row.workspace),
     commission: row.commission == null ? 0 : Number(row.commission) || 0,
     discount: row.discount == null ? 0 : Number(row.discount) || 0,

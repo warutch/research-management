@@ -25,6 +25,13 @@ export function formatDate(dateString: string): string {
   });
 }
 
+export function formatDateTime(dateString: string): string {
+  if (!dateString) return '-';
+  return new Date(dateString).toLocaleString('th-TH', {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
 export function cn(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ');
 }

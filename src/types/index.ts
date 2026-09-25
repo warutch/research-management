@@ -121,6 +121,7 @@ export interface Project {
   commission?: number; // ค่า commission รายโครงการ (one-time) — default 0; Student default 1000
   discount?: number; // ส่วนลด % ของโครงการ — ใช้ต่อในใบเสนอราคา (default 0)
   expenses?: ProjectExpense[]; // ค่าดำเนินการโครงการ — หักก่อนแบ่ง + จ่ายคืนผู้ที่ออกเงิน
+  updatedAt?: string; // เวลาแก้ไขล่าสุด (จาก DB trigger — audit trail P3)
 }
 
 // ค่าดำเนินการรายโครงการ (เช่น ค่าเก็บข้อมูล) — หักออกจากรายได้ก่อนแบ่ง แล้วจ่ายคืนผู้ที่ออกเงิน

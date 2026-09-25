@@ -3,12 +3,13 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta, calcTotalExpenses } from '@/types';
-import { formatCurrency, formatAmount, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta, calcTotalExpenses } from '@/types';
+import { formatCurrency, formatAmount, formatDate, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/utils';
 import { exportReportXlsx, exportReportPdf } from '@/lib/reportExport';
-import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Download, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Download, Loader2 } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
+import DistributionFormModal, { type DistFormState } from '@/components/DistributionFormModal';
 import { toast } from '@/components/Toast';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -307,7 +308,7 @@ export default function ProjectsPage() {
 
   // Distribution form
   const [showDistForm, setShowDistForm] = useState<string | null>(null);
-  const [distForm, setDistForm] = useState({ projectId: '', recipientId: '' as RecipientId | '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [] as string[], note: '' });
+  const [distForm, setDistForm] = useState<DistFormState>({ projectId: '', recipientId: '' as RecipientId | '', amount: 0, paidDate: new Date().toISOString().split('T')[0], slipUrl: '', slipUrls: [], note: '' });
 
   // Expense form (ค่าดำเนินการ)
   const [expenseForm, setExpenseForm] = useState({ name: '', amount: 0, paidBy: '' as RecipientId | '' });
@@ -805,6 +806,9 @@ export default function ProjectsPage() {
                         <div className="flex-1 bg-gray-100 rounded-full h-1.5"><div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${progress}%` }} /></div>
                         <span className="text-xs text-gray-500">{progress}%</span>
                       </div>
+                      {project.updatedAt && (
+                        <p className="mt-2 text-[11px] text-gray-400">แก้ไขล่าสุด: {formatDateTime(project.updatedAt)}</p>
+                      )}
                     </div>
                     {editMode && (
                     <div className="flex items-center gap-1 ml-4 shrink-0">
@@ -1711,122 +1715,16 @@ export default function ProjectsPage() {
                                   </div>
 
                                   {showDistForm === project.id && (
-                                    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-                                      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-                                        <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-xl">
-                                          <div className="flex items-center gap-2">
-                                            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow">
-                                              <Banknote size={18} className="text-white" />
-                                            </div>
-                                            <h2 className="font-semibold text-gray-900">เพิ่มรายการโอนเงินให้สมาชิก</h2>
-                                          </div>
-                                          <button onClick={() => setShowDistForm(null)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-white/60">
-                                            <X size={18} />
-                                          </button>
-                                        </div>
-                                        <div className="p-5 space-y-4">
-                                          <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">ผู้รับเงิน *</label>
-                                            <select
-                                              value={distForm.recipientId}
-                                              onChange={(e) => {
-                                                const rid = e.target.value as RecipientId | '';
-                                                // Prefill จำนวนเงิน = ที่ต้องโอนคงเหลือของ recipient นั้น (rounded shouldPay − โอนแล้ว)
-                                                let prefillAmount = distForm.amount;
-                                                if (rid) {
-                                                  const alreadyPaid = distributions
-                                                    .filter((d) => d.projectId === project.id && d.recipientId === rid)
-                                                    .reduce((s, d) => s + d.amount, 0);
-                                                  const totalPaidForProject = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-                                                  const rs = calcRoundedShares(project, totalPaidForProject);
-                                                  let shouldPay = 0;
-                                                  // รวมส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ (reimburse)
-                                                  if (rid === 'commission') shouldPay = rs.commission;
-                                                  else if (rid === 'horse') shouldPay = rs.horse + rs.reimburse.horse;
-                                                  else if (rid === 'pool') shouldPay = rs.pool + rs.reimburse.pool;
-                                                  else shouldPay = (rs.members[rid as MemberId] ?? 0) + rs.reimburse[rid as MemberId];
-                                                  prefillAmount = Math.max(0, shouldPay - alreadyPaid);
-                                                }
-                                                setDistForm({ ...distForm, recipientId: rid as RecipientId, amount: prefillAmount });
-                                              }}
-                                              className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
-                                            >
-                                              <option value="">-- เลือกผู้รับเงิน --</option>
-                                              {MEMBERS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                              <option value="horse">Manager</option>
-                                              <option value="pool">Pool money</option>
-                                              {getCommission(project) > 0 && (
-                                                <option value="commission">Commission ({formatCurrency(getCommission(project))})</option>
-                                              )}
-                                            </select>
-                                          </div>
-                                          <div className="grid grid-cols-2 gap-3">
-                                            <div>
-                                              <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท) *</label>
-                                              <input type="number" value={distForm.amount || ''} onChange={(e) => setDistForm({ ...distForm, amount: Number(e.target.value) })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="0" />
-                                            </div>
-                                            <div>
-                                              <label className="block text-sm font-medium text-gray-700 mb-1">วันที่โอน</label>
-                                              <input type="date" value={distForm.paidDate} onChange={(e) => setDistForm({ ...distForm, paidDate: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" />
-                                            </div>
-                                          </div>
-                                          {distForm.recipientId && (() => {
-                                            const rid = distForm.recipientId as RecipientId;
-                                            const clientPaidNow = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-                                            const rs = calcRoundedShares(project, clientPaidNow);
-                                            const profit = rid === 'commission' ? rs.commission : rid === 'horse' ? rs.horse : rid === 'pool' ? rs.pool : (rs.members[rid as MemberId] || 0);
-                                            const reimb = rs.reimburse[rid] || 0;
-                                            const alreadyPaid = distributions.filter((d) => d.projectId === project.id && d.recipientId === rid).reduce((s, d) => s + d.amount, 0);
-                                            const shouldReceive = profit + reimb;
-                                            const remaining = Math.max(0, shouldReceive - alreadyPaid);
-                                            if (shouldReceive <= 0) return null;
-                                            return (
-                                              <div className="text-[11px] bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 space-y-0.5">
-                                                <div className="flex items-center justify-between text-gray-700">
-                                                  <span>ส่วนแบ่งกำไร (จากที่ลูกค้าจ่ายแล้ว)</span>
-                                                  <span className="font-medium tabular-nums">{formatCurrency(profit)}</span>
-                                                </div>
-                                                {reimb > 0 && (
-                                                  <div className="flex items-center justify-between text-amber-700">
-                                                    <span>↩ จ่ายคืนค่าดำเนินการ (ออกไปก่อน)</span>
-                                                    <span className="font-medium tabular-nums">{formatCurrency(reimb)}</span>
-                                                  </div>
-                                                )}
-                                                {alreadyPaid > 0 && (
-                                                  <div className="flex items-center justify-between text-green-600">
-                                                    <span>โอนไปแล้ว</span>
-                                                    <span className="font-medium tabular-nums">−{formatCurrency(alreadyPaid)}</span>
-                                                  </div>
-                                                )}
-                                                <div className="flex items-center justify-between font-semibold text-gray-900 border-t border-gray-200 pt-1 mt-1">
-                                                  <span>ยอดที่แนะนำโอน</span>
-                                                  <span className="tabular-nums">{formatCurrency(remaining)}</span>
-                                                </div>
-                                              </div>
-                                            );
-                                          })()}
-                                          <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">อัพโหลด Slip</label>
-                                            <SlipUploader
-                                              values={distForm.slipUrls || []}
-                                              onChange={(urls) => setDistForm({ ...distForm, slipUrls: urls, slipUrl: urls[0] || '' })}
-                                              onPreview={(url) => setViewSlipUrl(url)}
-                                              color="green"
-                                            />
-                                          </div>
-                                          <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
-                                            <input type="text" value={distForm.note} onChange={(e) => setDistForm({ ...distForm, note: e.target.value })} className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="หมายเหตุเพิ่มเติม..." />
-                                          </div>
-                                        </div>
-                                        <div className="flex justify-end gap-3 p-5 border-t border-gray-100">
-                                          <button onClick={() => setShowDistForm(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">ยกเลิก</button>
-                                          <button onClick={() => handleSaveDistribution(project.id)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 shadow">
-                                            <Save size={16} /> บันทึก
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
+                                    <DistributionFormModal
+                                      project={project}
+                                      distForm={distForm}
+                                      setDistForm={setDistForm}
+                                      payments={payments}
+                                      distributions={distributions}
+                                      onClose={() => setShowDistForm(null)}
+                                      onSave={() => handleSaveDistribution(project.id)}
+                                      onPreviewSlip={(url) => setViewSlipUrl(url)}
+                                    />
                                   )}
 
                                   {(() => {
