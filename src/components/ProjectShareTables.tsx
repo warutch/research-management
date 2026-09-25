@@ -42,7 +42,12 @@ export function ActivityShareTable({
   if (hasDiscount) deductLabels.push(`ส่วนลด ${discountPercent}%`);
   const deductLabel = 'หัก ' + deductLabels.join(' + ');
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="mb-2">
+        <h5 className="text-sm font-semibold text-gray-700">แบ่งตามกิจกรรม</h5>
+        <p className="text-xs text-gray-400">งานและส่วนแบ่งทีมตามบทบาท — บอกว่า &ldquo;ใครได้เท่าไร&rdquo; ของทั้งโครงการ (ไม่ใช่กำหนดชำระ)</p>
+      </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-gray-500 border-b bg-gradient-to-r from-gray-50 to-gray-100">
@@ -112,6 +117,7 @@ export function ActivityShareTable({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -130,7 +136,8 @@ export function InstallmentPlanTable({
 }) {
   return (
     <div className="bg-white rounded-lg border p-4">
-      <h5 className="text-sm font-semibold text-gray-700 mb-3">แผนการโอนเงินแยกรายงวด {commissionAmount > 0 && <span className="text-xs font-normal text-gray-500">(Commission ตัดก่อนเป็นอันดับแรก แล้วค่อยกระจายให้สมาชิก)</span>}</h5>
+      <h5 className="text-sm font-semibold text-gray-700">แผนการโอนเงินแยกรายงวด {commissionAmount > 0 && <span className="text-xs font-normal text-gray-500">(Commission ตัดก่อนเป็นอันดับแรก แล้วค่อยกระจายให้สมาชิก)</span>}</h5>
+      <p className="text-xs text-gray-400 mb-3">กำหนดชำระของลูกค้า — ยอดสมาชิกแต่ละงวดคำนวณตามสัดส่วนเงินที่จ่าย ไม่ได้ผูกกับกิจกรรมโดยตรง (งวดที่ 1 ≠ กิจกรรมที่ 1)</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
