@@ -3,16 +3,17 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcTotalExpenses, calcProjectNetTotal } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcTotalExpenses, calcProjectNetTotal, DEFAULT_VAT_RATE, DEFAULT_WHT_RATE, DEFAULT_COMPANY_FEE_RATE } from '@/types';
 import { formatCurrency, formatAmount, formatDate, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/utils';
 import { exportReportXlsx, exportReportPdf } from '@/lib/reportExport';
-import { Plus, Pencil, Trash2, X, Save, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Loader2, Building2 } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
 import DistributionFormModal, { type DistFormState } from '@/components/DistributionFormModal';
 import { ActivityShareTable, InstallmentPlanTable } from '@/components/ProjectShareTables';
 import RecipientSummaryCards from '@/components/RecipientSummaryCards';
 import DistributionHistoryList from '@/components/DistributionHistoryList';
+import CompanyTaxBreakdown from '@/components/CompanyTaxBreakdown';
 import { toast } from '@/components/Toast';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -438,7 +439,7 @@ export default function ProjectsPage() {
   };
 
   const handleEditProject = (project: Project) => {
-    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0, discount: project.discount ?? 0 });
+    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0, discount: project.discount ?? 0, companyPassThrough: project.companyPassThrough ?? false, vatRate: project.vatRate ?? DEFAULT_VAT_RATE, whtRate: project.whtRate ?? DEFAULT_WHT_RATE, companyFeeRate: project.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE });
     setEditingId(project.id);
     setShowForm(true);
   };
@@ -716,6 +717,43 @@ export default function ProjectsPage() {
                   placeholder="0"
                 />
                 <p className="text-xs text-gray-400 mt-1">ส่วนลดเป็น % ของยอดรวม — ดึงไปใส่ในใบเสนอราคาอัตโนมัติ</p>
+              </div>
+              {/* ผ่านบริษัท — หัก VAT + หัก ณ ที่จ่าย + ค่าดำเนินการบริษัท ก่อนแบ่งทีม */}
+              <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!form.companyPassThrough}
+                    onChange={(e) => setForm({
+                      ...form,
+                      companyPassThrough: e.target.checked,
+                      vatRate: form.vatRate ?? DEFAULT_VAT_RATE,
+                      whtRate: form.whtRate ?? DEFAULT_WHT_RATE,
+                      companyFeeRate: form.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE,
+                    })}
+                    className="w-4 h-4 accent-sky-600"
+                  />
+                  <Building2 size={15} className="text-sky-600" /> ผ่านบริษัท (หักภาษี/ค่าบริษัทก่อนแบ่งทีม)
+                </label>
+                {form.companyPassThrough && (
+                  <>
+                    <p className="text-xs text-gray-500 mt-2 mb-2">ค่าบริการรวมของกิจกรรม = ยอดเรียกเก็บ (รวม VAT) — ระบบจะหักให้อัตโนมัติแล้วเหลือเป็นเงินแบ่งทีม</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">VAT (%)</label>
+                        <input type="number" min={0} value={form.vatRate ?? DEFAULT_VAT_RATE} onChange={(e) => setForm({ ...form, vatRate: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">หัก ณ ที่จ่าย (%)</label>
+                        <input type="number" min={0} value={form.whtRate ?? DEFAULT_WHT_RATE} onChange={(e) => setForm({ ...form, whtRate: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">ค่าบริษัท (%)</label>
+                        <input type="number" min={0} value={form.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE} onChange={(e) => setForm({ ...form, companyFeeRate: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t">
@@ -1450,6 +1488,9 @@ export default function ProjectsPage() {
 
                             return (
                               <div className="space-y-4">
+                                {/* กล่องสรุปเงินผ่านบริษัท (เฉพาะโครงการที่เปิดโหมดนี้) */}
+                                {project.companyPassThrough && <CompanyTaxBreakdown project={project} received={totalPaidReal} />}
+
                                 {/* สรุปส่วนแบ่ง — ย้ายลงมาหลังแผนการโอน */}
                                 <RecipientSummaryCards
                                   project={project}
@@ -1473,8 +1514,9 @@ export default function ProjectsPage() {
                                   project={project}
                                   memberShares={memberShares}
                                   totalCost={totalCost}
-                                  netTotal={netTotal}
+                                  teamNetTotal={Math.round(roundedExpected.total)}
                                   discountPercent={discountPercent}
+                                  companyPassThrough={!!project.companyPassThrough}
                                   commissionAmount={commissionAmount}
                                   hasReimburse={hasReimburse}
                                   reimburseSum={reimburseSum}

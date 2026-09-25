@@ -29,6 +29,7 @@ import {
   markCommissionColumnMissing, isCommissionMissingError,
   markDiscountColumnMissing, isDiscountMissingError,
   markExpensesColumnMissing, isExpensesMissingError,
+  markCompanyColumnsMissing, isCompanyColumnsMissingError,
   isTableMissingError,
 } from '@/lib/supabaseSync';
 import { toast } from '@/components/Toast';
@@ -346,6 +347,7 @@ function markIfMissingColumn(error: unknown): boolean {
   if (isCommissionMissingError(error)) { markCommissionColumnMissing(); warnMissingColumn('commission', 'schema.sql'); return true; }
   if (isDiscountMissingError(error)) { markDiscountColumnMissing(); warnMissingColumn('discount (ส่วนลด)', 'add_project_discount.sql'); return true; }
   if (isExpensesMissingError(error)) { markExpensesColumnMissing(); warnMissingColumn('expenses (ค่าดำเนินการ)', 'add_project_expenses.sql'); return true; }
+  if (isCompanyColumnsMissingError(error)) { markCompanyColumnsMissing(); warnMissingColumn('ผ่านบริษัท (VAT/ภาษี)', 'add_company_passthrough.sql'); return true; }
   return false;
 }
 

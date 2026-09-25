@@ -15,14 +15,15 @@ export interface MemberShareRow {
 
 // ---- ตารางแบ่งตามกิจกรรม + สรุปหัก commission / จ่ายคืน ----
 export function ActivityShareTable({
-  project, memberShares, totalCost, netTotal, discountPercent, commissionAmount, hasReimburse, reimburseSum,
+  project, memberShares, totalCost, teamNetTotal, discountPercent, companyPassThrough, commissionAmount, hasReimburse, reimburseSum,
   horseRawTotal, poolRawTotal, horseTotal, poolTotal, roundedExpected,
 }: {
   project: Project;
   memberShares: MemberShareRow[];
   totalCost: number;
-  netTotal: number;
+  teamNetTotal: number; // ยอดสุทธิที่ทีมได้จริง (หลังส่วนลด + หลังผ่านบริษัท)
   discountPercent: number;
+  companyPassThrough: boolean;
   commissionAmount: number;
   hasReimburse: boolean;
   reimburseSum: number;
@@ -33,13 +34,14 @@ export function ActivityShareTable({
   roundedExpected: RoundedShares;
 }) {
   const hasDiscount = discountPercent > 0;
-  const discountAmount = Math.max(0, totalCost - netTotal); // ยอดส่วนลด (บาท)
-  const hasAdjust = commissionAmount > 0 || hasReimburse || hasDiscount;
+  const reductionAmount = Math.max(0, totalCost - teamNetTotal); // ส่วนลด + ผ่านบริษัท รวมกัน
+  const hasAdjust = commissionAmount > 0 || hasReimburse || hasDiscount || companyPassThrough;
   // ป้ายกำกับแถว "หัก" ตามรายการที่ถูกหักจริง
   const deductLabels: string[] = [];
   if (commissionAmount > 0) deductLabels.push(`Commission ${Math.round((1 - calcNetRatio(project)) * 10000) / 100}%`);
   if (hasReimburse) deductLabels.push('สำรองค่าดำเนินการ');
   if (hasDiscount) deductLabels.push(`ส่วนลด ${discountPercent}%`);
+  if (companyPassThrough) deductLabels.push('ผ่านบริษัท (VAT+ภาษี+ค่าบริษัท)');
   const deductLabel = 'หัก ' + deductLabels.join(' + ');
   return (
     <div>
@@ -92,7 +94,7 @@ export function ActivityShareTable({
               {/* หัก = commission + สำรองค่าดำเนินการ + ส่วนลด (netAfterAdjust = rawTotal − หัก) */}
               <tr className="text-rose-700 bg-rose-50">
                 <td className="px-3 py-1.5 text-xs">{deductLabel}</td>
-                <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount + reimburseSum + discountAmount)}</td>
+                <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(commissionAmount + reimburseSum + reductionAmount)}</td>
                 {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - roundedExpected.members[m.id])}</td>)}
                 <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - roundedExpected.horse)}</td>
                 <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - roundedExpected.pool)}</td>
@@ -107,8 +109,8 @@ export function ActivityShareTable({
                 </tr>
               )}
               <tr className="font-bold text-indigo-900 bg-indigo-50 border-t-2 border-indigo-200">
-                <td className="px-3 py-2">รวมสุทธิ (ที่ต้องโอน){hasDiscount && <span className="font-normal text-[11px] text-rose-400"> หลังหักส่วนลด {discountPercent}%</span>}</td>
-                <td className="px-3 py-2 text-right">{formatCurrency(netTotal - commissionAmount)}</td>
+                <td className="px-3 py-2">รวมสุทธิ (ที่ต้องโอน){companyPassThrough ? <span className="font-normal text-[11px] text-sky-500"> เงินที่ทีมได้หลังผ่านบริษัท</span> : hasDiscount ? <span className="font-normal text-[11px] text-rose-400"> หลังหักส่วนลด {discountPercent}%</span> : null}</td>
+                <td className="px-3 py-2 text-right">{formatCurrency(teamNetTotal - commissionAmount)}</td>
                 {memberShares.map((m) => <td key={m.id} className="px-3 py-2 text-center" style={{ color: m.color }}>{formatCurrency(m.total)}</td>)}
                 <td className="px-3 py-2 text-center text-amber-600">{formatCurrency(horseTotal)}</td>
                 <td className="px-3 py-2 text-center text-gray-500">{formatCurrency(poolTotal)}</td>
@@ -156,12 +158,12 @@ export function InstallmentPlanTable({
               // ใช้ calcRoundedSharesDelta — ทุกยอดเป็นจำนวนเต็มบาท
               // cumulative paid up to each installment → delta คือยอดของงวดนั้น
               const sortedInsts = [...installments].sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
-              let cumulative = 0;
-              return sortedInsts.map((inst) => {
+              return sortedInsts.map((inst, idx) => {
                 const instPaid = projectPaymentsAll.filter((p) => p.installmentId === inst.id).reduce((s, p) => s + p.amount, 0);
-                const before = cumulative;
-                cumulative += inst.amount;
-                const delta = calcRoundedSharesDelta(project, before, cumulative);
+                // ยอดสะสมก่อนงวดนี้ (ไม่ mutate ตัวแปรระหว่าง render)
+                const before = sortedInsts.slice(0, idx).reduce((s, x) => s + x.amount, 0);
+                const after = before + inst.amount;
+                const delta = calcRoundedSharesDelta(project, before, after);
                 return (
                   <tr key={inst.id} className="border-b border-gray-50">
                     <td className="px-3 py-2 text-gray-700">งวดที่ {inst.installmentNumber}</td>

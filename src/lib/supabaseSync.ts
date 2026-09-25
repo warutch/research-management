@@ -1,4 +1,4 @@
-import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId, ProjectType, PoolTransaction, PoolTxType } from '@/types';
+import { Project, Quotation, PaymentRecord, DistributionRecord, TrackingActivity, TrackingPriority, TrackingStatus, MemberId, ProjectType, PoolTransaction, PoolTxType, DEFAULT_VAT_RATE, DEFAULT_WHT_RATE, DEFAULT_COMPANY_FEE_RATE } from '@/types';
 
 // DB column ชื่อ `workspace` (จาก migration) → TS field ชื่อ `type`
 const DEFAULT_PROJECT_TYPE: ProjectType = 'doctor';
@@ -62,6 +62,24 @@ export function isDiscountMissingError(e: unknown): boolean {
   return /discount/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
 }
 
+// กัน error ถ้า DB ยังไม่มี column ชุด "ผ่านบริษัท" (company_pass_through/vat_rate/wht_rate/company_fee_rate)
+let companyColumnsMissing = false;
+export function markCompanyColumnsMissing() {
+  if (!companyColumnsMissing) {
+    companyColumnsMissing = true;
+    console.warn(
+      '[supabaseSync] DB projects company-passthrough columns not found — ปิดการ sync\n' +
+      'กรุณารัน migration supabase/add_company_passthrough.sql'
+    );
+  }
+}
+export function isCompanyColumnsMissingError(e: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const err = e as any;
+  const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
+  return /company_pass_through|vat_rate|wht_rate|company_fee_rate/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
+}
+
 // เช่นเดียวกัน — กัน error ถ้า DB ยังไม่มี column 'expenses' บน projects
 let expensesColumnMissing = false;
 export function markExpensesColumnMissing() {
@@ -123,6 +141,12 @@ export function projectToDb(p: Project): any {
   if (!commissionColumnMissing) base.commission = p.commission ?? 0;
   if (!discountColumnMissing) base.discount = p.discount ?? 0;
   if (!expensesColumnMissing) base.expenses = p.expenses ?? [];
+  if (!companyColumnsMissing) {
+    base.company_pass_through = p.companyPassThrough ?? false;
+    base.vat_rate = p.vatRate ?? DEFAULT_VAT_RATE;
+    base.wht_rate = p.whtRate ?? DEFAULT_WHT_RATE;
+    base.company_fee_rate = p.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE;
+  }
   return base;
 }
 
@@ -144,6 +168,12 @@ export function projectPatchToDb(data: Partial<Project>): any {
   if ('commission' in data && !commissionColumnMissing) patch.commission = data.commission ?? 0;
   if ('discount' in data && !discountColumnMissing) patch.discount = data.discount ?? 0;
   if ('expenses' in data && !expensesColumnMissing) patch.expenses = data.expenses ?? [];
+  if (!companyColumnsMissing) {
+    if ('companyPassThrough' in data) patch.company_pass_through = data.companyPassThrough ?? false;
+    if ('vatRate' in data) patch.vat_rate = data.vatRate ?? DEFAULT_VAT_RATE;
+    if ('whtRate' in data) patch.wht_rate = data.whtRate ?? DEFAULT_WHT_RATE;
+    if ('companyFeeRate' in data) patch.company_fee_rate = data.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE;
+  }
   return patch;
 }
 
@@ -166,6 +196,10 @@ export function projectFromDb(row: any): Project {
     commission: row.commission == null ? 0 : Number(row.commission) || 0,
     discount: row.discount == null ? 0 : Number(row.discount) || 0,
     expenses: Array.isArray(row.expenses) ? row.expenses : [],
+    companyPassThrough: row.company_pass_through === true,
+    vatRate: row.vat_rate == null ? DEFAULT_VAT_RATE : Number(row.vat_rate),
+    whtRate: row.wht_rate == null ? DEFAULT_WHT_RATE : Number(row.wht_rate),
+    companyFeeRate: row.company_fee_rate == null ? DEFAULT_COMPANY_FEE_RATE : Number(row.company_fee_rate),
   };
 }
 

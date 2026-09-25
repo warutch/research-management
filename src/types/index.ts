@@ -122,7 +122,17 @@ export interface Project {
   discount?: number; // ส่วนลด % ของโครงการ — ใช้ต่อในใบเสนอราคา (default 0)
   expenses?: ProjectExpense[]; // ค่าดำเนินการโครงการ — หักก่อนแบ่ง + จ่ายคืนผู้ที่ออกเงิน
   updatedAt?: string; // เวลาแก้ไขล่าสุด (จาก DB trigger — audit trail P3)
+  // โหมด "ผ่านบริษัท" — เงินต้องผ่านบริษัทตัวกลาง (หัก VAT + หัก ณ ที่จ่าย + ค่าดำเนินการบริษัท) ก่อนแบ่งทีม
+  // ค่าบริการรวมของกิจกรรม = ยอดเรียกเก็บรวม VAT (gross)
+  companyPassThrough?: boolean;
+  vatRate?: number;        // % VAT (default 7)
+  whtRate?: number;        // % หัก ณ ที่จ่าย (default 3)
+  companyFeeRate?: number; // % ค่าดำเนินการบริษัท (default 10)
 }
+
+export const DEFAULT_VAT_RATE = 7;
+export const DEFAULT_WHT_RATE = 3;
+export const DEFAULT_COMPANY_FEE_RATE = 10;
 
 // ค่าดำเนินการรายโครงการ (เช่น ค่าเก็บข้อมูล) — หักออกจากรายได้ก่อนแบ่ง แล้วจ่ายคืนผู้ที่ออกเงิน
 export interface ProjectExpense {
@@ -157,10 +167,52 @@ export function getDiscountFactor(project: Project): number {
   return 1 - d / 100;
 }
 
-// ยอดสุทธิที่ลูกค้าต้องจ่ายจริง (หลังหักส่วนลด) = ค่าบริการ × ตัวคูณส่วนลด
-// ใช้เป็นเพดานของเงินที่นำมาแบ่ง (การแบ่งสัดส่วนยังใช้ค่าบริการเต็มเป็นฐาน จึงลดตามสัดส่วนอัตโนมัติ)
+// ยอดที่ลูกค้าต้องจ่ายจริง (หลังหักส่วนลด) = ค่าบริการ × ตัวคูณส่วนลด
+// สำหรับโครงการผ่านบริษัท: นี่คือ "ยอดเรียกเก็บ" ที่ลูกค้าโอนมา (รวม VAT, ก่อนหักภาษี/ค่าบริษัท)
 export function calcProjectNetTotal(project: Project): number {
   return calcProjectTotalCost(project) * getDiscountFactor(project);
+}
+
+// ตัวคูณ "เหลือถึงทีม" สำหรับโครงการผ่านบริษัท (หัก VAT + หัก ณ ที่จ่าย + ค่าบริษัท)
+// เป็นเชิงเส้น: teamNet = gross × (100−wht)/(100+vat) × (100−fee)/100
+export function getCompanyFactor(project: Project): number {
+  if (!project.companyPassThrough) return 1;
+  const v = Math.max(0, project.vatRate ?? DEFAULT_VAT_RATE);
+  const w = Math.max(0, project.whtRate ?? DEFAULT_WHT_RATE);
+  const c = Math.max(0, project.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE);
+  return Math.max(0, ((100 - w) / (100 + v)) * ((100 - c) / 100));
+}
+
+export interface CompanyBreakdown {
+  gross: number;      // ยอดเรียกเก็บ (รวม VAT)
+  preVat: number;     // ค่าบริการก่อน VAT
+  vat: number;        // VAT
+  wht: number;        // หัก ณ ที่จ่าย
+  afterWht: number;   // บริษัทได้หลังหัก ณ ที่จ่าย
+  afterVat: number;   // หลังบริษัทส่ง VAT
+  companyFee: number; // ค่าดำเนินการบริษัท
+  net: number;        // เหลือแบ่งทีม
+  vatRate: number; whtRate: number; feeRate: number;
+}
+
+// รายละเอียดการหักผ่านบริษัท จากยอดเรียกเก็บ (gross รวม VAT)
+export function calcCompanyBreakdown(project: Project, gross: number): CompanyBreakdown {
+  const vatRate = Math.max(0, project.vatRate ?? DEFAULT_VAT_RATE);
+  const whtRate = Math.max(0, project.whtRate ?? DEFAULT_WHT_RATE);
+  const feeRate = Math.max(0, project.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE);
+  const preVat = gross / (1 + vatRate / 100);
+  const vat = preVat * (vatRate / 100);
+  const wht = preVat * (whtRate / 100);
+  const afterWht = gross - wht;
+  const afterVat = afterWht - vat;
+  const companyFee = afterVat * (feeRate / 100);
+  const net = afterVat - companyFee;
+  return { gross, preVat, vat, wht, afterWht, afterVat, companyFee, net, vatRate, whtRate, feeRate };
+}
+
+// ยอดสุทธิที่ "ทีม" ได้จริงเมื่อรับเงินครบ (หลังส่วนลด + หลังผ่านบริษัท)
+export function calcTeamNetTotal(project: Project): number {
+  return calcProjectNetTotal(project) * getCompanyFactor(project);
 }
 
 // รายได้ดิบของสมาชิก (ยังไม่หัก commission) — สำหรับโครงการ
@@ -303,22 +355,24 @@ function emptyReimburse(): Record<RecipientId, number> {
 }
 
 export function calcRoundedShares(project: Project, clientPaid: number): RoundedShares {
-  const totalCost = calcProjectTotalCost(project); // ค่าบริการเต็ม — ฐานของสัดส่วนการแบ่ง
-  // เพดานเงินที่นำมาแบ่ง = ยอดสุทธิหลังส่วนลด (เงินที่ลูกค้าต้องจ่ายจริง)
-  // การหารสัดส่วนยังใช้ totalCost เต็มเป็นตัวส่วน → ทุกคนจึงถูกลดตามสัดส่วนส่วนลดอัตโนมัติ
-  const netTotal = calcProjectNetTotal(project);
-  const cappedPaid = Math.min(netTotal, Math.max(0, clientPaid));
+  const totalCost = calcProjectTotalCost(project); // ค่าบริการเต็ม (gross) — ฐานของสัดส่วนการแบ่ง
+  // เพดานเงินที่ลูกค้าต้องจ่ายจริง = ยอดสุทธิหลังส่วนลด
+  const clientPayable = calcProjectNetTotal(project);
+  const cappedPaid = Math.min(clientPayable, Math.max(0, clientPaid));
+  // pot = เงินที่ "เหลือถึงทีม" หลังผ่านบริษัท (VAT/หัก ณ ที่จ่าย/ค่าบริษัท) — โครงการปกติ factor = 1
+  // การหารสัดส่วนยังใช้ totalCost เต็มเป็นตัวส่วน → ทุกคนถูกลดตามสัดส่วนอัตโนมัติ
+  const pot = cappedPaid * getCompanyFactor(project);
 
   if (totalCost <= 0) {
     return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, reimburse: emptyReimburse(), total: 0 };
   }
 
-  // 0. จ่ายคืนค่าดำเนินการก่อน (priority) — ตัดจากยอดที่รับมาก่อนแบ่ง
+  // 0. จ่ายคืนค่าดำเนินการก่อน (priority) — ตัดจาก pot ทีมก่อนแบ่ง
   //    แบ่งตามสัดส่วนเงินที่แต่ละคนออกไป (จำนวนเต็ม, คนสุดท้ายดูดเศษ)
   const expenses = project.expenses || [];
   const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  // reimbursedTotal ต้องไม่เกิน cappedPaid (กัน overshoot กรณี cost เศษทศนิยม)
-  const reimbursedTotal = Math.min(Math.round(totalExpenses), Math.round(cappedPaid));
+  // reimbursedTotal ต้องไม่เกิน pot (กัน overshoot)
+  const reimbursedTotal = Math.min(Math.round(totalExpenses), Math.round(pot));
   const reimburse = emptyReimburse();
   if (totalExpenses > 0 && reimbursedTotal > 0) {
     const byPayer: Partial<Record<RecipientId, number>> = {};
@@ -338,7 +392,7 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   }
 
   // ยอดที่เหลือหลังจ่ายคืนค่าดำเนินการ → เอาไปแบ่งตามสัดส่วน
-  const distributable = Math.max(0, cappedPaid - reimbursedTotal);
+  const distributable = Math.max(0, pot - reimbursedTotal);
 
   // 1. Manager + Pool: raw proportional, rounded
   const horse = Math.round((calcHorseRawIncome(project) * distributable) / totalCost);
@@ -360,7 +414,7 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   const frank = memberSumRaw > 0 ? Math.round((remainingForMembers * frankRaw) / memberSumRaw) : 0;
   const ton = Math.max(0, remainingForMembers - tangmo - frank);
 
-  return { members: { tangmo, frank, ton }, horse, pool, commission, reimburse, total: cappedPaid };
+  return { members: { tangmo, frank, ton }, horse, pool, commission, reimburse, total: pot };
 }
 
 // Convenience: yodtem expected NET ของแต่ละ recipient เมื่อโครงการจ่ายครบ (rounded)
