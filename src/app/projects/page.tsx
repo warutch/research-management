@@ -1673,11 +1673,35 @@ export default function ProjectsPage() {
                                           {distForm.recipientId && (() => {
                                             const rid = distForm.recipientId as RecipientId;
                                             const clientPaidNow = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-                                            const reimb = calcRoundedShares(project, clientPaidNow).reimburse[rid] || 0;
-                                            if (reimb <= 0) return null;
+                                            const rs = calcRoundedShares(project, clientPaidNow);
+                                            const profit = rid === 'commission' ? rs.commission : rid === 'horse' ? rs.horse : rid === 'pool' ? rs.pool : (rs.members[rid as MemberId] || 0);
+                                            const reimb = rs.reimburse[rid] || 0;
+                                            const alreadyPaid = distributions.filter((d) => d.projectId === project.id && d.recipientId === rid).reduce((s, d) => s + d.amount, 0);
+                                            const shouldReceive = profit + reimb;
+                                            const remaining = Math.max(0, shouldReceive - alreadyPaid);
+                                            if (shouldReceive <= 0) return null;
                                             return (
-                                              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
-                                                ↩ ยอดที่แนะนำรวม <b>จ่ายคืนค่าดำเนินการ ฿{reimb.toLocaleString()}</b> ที่ {ALL_SHARE_NAMES[rid]} ออกไปก่อน (ส่วนที่เหลือคือส่วนแบ่งกำไร)
+                                              <div className="text-[11px] bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 space-y-0.5">
+                                                <div className="flex items-center justify-between text-gray-700">
+                                                  <span>ส่วนแบ่งกำไร (จากที่ลูกค้าจ่ายแล้ว)</span>
+                                                  <span className="font-medium tabular-nums">{formatCurrency(profit)}</span>
+                                                </div>
+                                                {reimb > 0 && (
+                                                  <div className="flex items-center justify-between text-amber-700">
+                                                    <span>↩ จ่ายคืนค่าดำเนินการ (ออกไปก่อน)</span>
+                                                    <span className="font-medium tabular-nums">{formatCurrency(reimb)}</span>
+                                                  </div>
+                                                )}
+                                                {alreadyPaid > 0 && (
+                                                  <div className="flex items-center justify-between text-green-600">
+                                                    <span>โอนไปแล้ว</span>
+                                                    <span className="font-medium tabular-nums">−{formatCurrency(alreadyPaid)}</span>
+                                                  </div>
+                                                )}
+                                                <div className="flex items-center justify-between font-semibold text-gray-900 border-t border-gray-200 pt-1 mt-1">
+                                                  <span>ยอดที่แนะนำโอน</span>
+                                                  <span className="tabular-nums">{formatCurrency(remaining)}</span>
+                                                </div>
                                               </div>
                                             );
                                           })()}
