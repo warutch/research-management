@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, RecipientId, ALL_SHARE_NAMES, calcRoundedShares, calcRoundedExpected } from '@/types';
+import { MEMBERS, MemberId, RecipientId, ALL_SHARE_NAMES, calcRoundedShares, calcRoundedExpected } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from '@/components/Toast';
@@ -18,7 +18,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { Wallet, TrendingUp, CheckCircle2, X, Save, Banknote, Plus } from 'lucide-react';
+import { Wallet, TrendingUp, CheckCircle2, X, Save, Banknote, Plus, Download } from 'lucide-react';
 import SlipUploader from '@/components/SlipUploader';
 
 export default function IncomePage() {
@@ -211,8 +211,79 @@ export default function IncomePage() {
     }] : []),
   ];
 
+  // Export CSV — เงินที่ต้องโอนให้สมาชิกแต่ละคน (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)
+  const handleExportCsv = () => {
+    const csvCell = (v: string | number) => {
+      const s = String(v ?? '');
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const recipients: { id: RecipientId; name: string }[] = [
+      ...MEMBERS.map((m) => ({ id: m.id as RecipientId, name: m.name })),
+      { id: 'horse', name: 'Manager' },
+      { id: 'pool', name: 'Pool money' },
+      { id: 'commission', name: 'Commission' },
+    ];
+    const pick = (rs: ReturnType<typeof calcRoundedShares>, id: RecipientId) =>
+      id === 'commission' ? rs.commission
+        : id === 'horse' ? rs.horse + rs.reimburse.horse
+        : id === 'pool' ? rs.pool + rs.reimburse.pool
+        : (rs.members[id as MemberId] || 0) + (rs.reimburse[id as MemberId] || 0);
+
+    const summary: string[] = [];
+    const detail: string[] = [];
+    const totals = { expected: 0, shouldPay: 0, actual: 0, outstanding: 0 };
+
+    for (const r of recipients) {
+      let expected = 0, shouldPay = 0, actual = 0;
+      for (const project of filteredProjects) {
+        const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
+        const exp = pick(calcRoundedExpected(project), r.id);
+        const sp = pick(calcRoundedShares(project, clientPaid), r.id);
+        const act = distributions.filter((d) => d.projectId === project.id && d.recipientId === r.id).reduce((s, d) => s + d.amount, 0);
+        expected += exp; shouldPay += sp; actual += act;
+        const out = Math.max(0, sp - act);
+        if (out > 0) detail.push([r.name, project.projectCode || '', project.name, project.client || '', out].map(csvCell).join(','));
+      }
+      const outstanding = Math.max(0, shouldPay - actual);
+      if (expected > 0 || actual > 0) {
+        summary.push([r.name, expected, shouldPay, actual, outstanding].map(csvCell).join(','));
+        totals.expected += expected; totals.shouldPay += shouldPay; totals.actual += actual; totals.outstanding += outstanding;
+      }
+    }
+
+    const lines: string[] = [];
+    lines.push('รายงานเงินที่ต้องโอนให้สมาชิก (คิดจากยอดที่ลูกค้าจ่ายมาแล้ว)');
+    lines.push(`วันที่ export,${new Date().toLocaleDateString('en-GB')}`);
+    lines.push('');
+    lines.push('== สรุปรายผู้รับ ==');
+    lines.push('ผู้รับเงิน,ควรได้ทั้งโครงการ,ต้องโอน(ตามที่ลูกค้าจ่าย),โอนแล้ว,คงค้างต้องโอนตอนนี้');
+    lines.push(...summary);
+    lines.push(['รวม', totals.expected, totals.shouldPay, totals.actual, totals.outstanding].map(csvCell).join(','));
+    lines.push('');
+    lines.push('== รายละเอียดรายโครงการ (เฉพาะที่ยังต้องโอน) ==');
+    lines.push('ผู้รับเงิน,รหัสโครงการ,โครงการ,ผู้วิจัย,ต้องโอนตอนนี้');
+    lines.push(...(detail.length > 0 ? detail : ['(ไม่มีรายการค้างโอน)']));
+
+    const csv = '﻿' + lines.join('\r\n'); // BOM ให้ Excel อ่านภาษาไทยถูก
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `เงินต้องโอนสมาชิก-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <button
+          onClick={handleExportCsv}
+          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+        >
+          <Download size={16} /> Export เงินต้องโอน (CSV)
+        </button>
+      </div>
       {/* Member Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {memberIncomes.map((member) => (
