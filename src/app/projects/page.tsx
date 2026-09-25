@@ -1064,26 +1064,53 @@ export default function ProjectsPage() {
                                   <td className="py-2.5 text-center text-xs">{formatCurrency(calcPoolRawIncome(project))}</td>
                                   <td /><td />
                                 </tr>
-                                {(getCommission(project) > 0 || calcTotalExpenses(project) > 0) && (() => {
-                                  // ใช้ rounded shares — net รวมหัก commission + ค่าดำเนินการแล้ว (Coordinator ดูดเศษ)
+                                {(getCommission(project) > 0 || calcTotalExpenses(project) > 0 || project.companyPassThrough) && (() => {
+                                  // ใช้ rounded shares — net รวมหัก commission + ค่าดำเนินการ + ผ่านบริษัทแล้ว
                                   const roundedExpected = calcRoundedExpected(project);
                                   const totalExp = calcTotalExpenses(project);
+                                  const commission = getCommission(project);
                                   const netSum = MEMBERS.reduce((s, m) => s + roundedExpected.members[m.id], 0) + roundedExpected.horse + roundedExpected.pool;
-                                  const dedTotal = totalCost - netSum; // = commission + ค่าดำเนินการที่จ่ายคืน
-                                  const dedLabel = getCommission(project) > 0 && totalExp > 0 ? 'หัก Commission + ค่าดำเนินการ'
-                                    : getCommission(project) > 0 ? 'หัก Commission' : 'หัก ค่าดำเนินการ';
+                                  const dedTotal = totalCost - netSum; // = หักบริษัท/ส่วนลด + commission + ค่าดำเนินการ
+                                  // แยก "หักจ่ายบริษัท/ส่วนลด" ออกจาก "หัก Commission/ค่าดำเนินการ"
+                                  const teamNetTotal = Math.round(roundedExpected.total);
+                                  const reductionAmount = Math.max(0, totalCost - teamNetTotal);
+                                  const hasReduction = reductionAmount > 0.5;
+                                  const reductionRatio = totalCost > 0 ? teamNetTotal / totalCost : 1;
+                                  const afterRed = (raw: number) => Math.round(raw * reductionRatio);
+                                  const reductionLabel = project.companyPassThrough
+                                    ? 'หักจ่ายบริษัท (VAT + ภาษี + ค่าบริษัท)'
+                                    : `หัก ส่วนลด ${project.discount ?? 0}%`;
+                                  const restCost = dedTotal - reductionAmount; // commission + ค่าดำเนินการ
+                                  const restLabel = commission > 0 && totalExp > 0 ? 'หัก Commission + ค่าดำเนินการ'
+                                    : commission > 0 ? 'หัก Commission' : 'หัก ค่าดำเนินการ';
                                   return (
                                     <>
-                                      <tr className="text-rose-700 bg-rose-50">
-                                        <td className="py-2 text-xs"><span className="font-medium">{dedLabel}</span></td>
-                                        <td className="py-2 text-right text-xs">−{formatCurrency(dedTotal)}</td>
-                                        {MEMBERS.map((m) => (
-                                          <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(calcMemberRawIncome(project, m.id) - roundedExpected.members[m.id])}</td>
-                                        ))}
-                                        <td className="py-2 text-center text-xs">−{formatCurrency(calcHorseRawIncome(project) - roundedExpected.horse)}</td>
-                                        <td className="py-2 text-center text-xs">−{formatCurrency(calcPoolRawIncome(project) - roundedExpected.pool)}</td>
-                                        <td /><td />
-                                      </tr>
+                                      {hasReduction && (
+                                        <tr className="text-sky-700 bg-sky-50">
+                                          <td className="py-2 text-xs"><span className="font-medium">{reductionLabel}</span></td>
+                                          <td className="py-2 text-right text-xs">−{formatCurrency(reductionAmount)}</td>
+                                          {MEMBERS.map((m) => {
+                                            const raw = calcMemberRawIncome(project, m.id);
+                                            return <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(raw - afterRed(raw))}</td>;
+                                          })}
+                                          <td className="py-2 text-center text-xs">−{formatCurrency(calcHorseRawIncome(project) - afterRed(calcHorseRawIncome(project)))}</td>
+                                          <td className="py-2 text-center text-xs">−{formatCurrency(calcPoolRawIncome(project) - afterRed(calcPoolRawIncome(project)))}</td>
+                                          <td /><td />
+                                        </tr>
+                                      )}
+                                      {restCost > 0.5 && (
+                                        <tr className="text-rose-700 bg-rose-50">
+                                          <td className="py-2 text-xs"><span className="font-medium">{restLabel}</span></td>
+                                          <td className="py-2 text-right text-xs">−{formatCurrency(restCost)}</td>
+                                          {MEMBERS.map((m) => {
+                                            const raw = calcMemberRawIncome(project, m.id);
+                                            return <td key={m.id} className="py-2 text-center text-xs">−{formatCurrency(Math.max(0, afterRed(raw) - roundedExpected.members[m.id]))}</td>;
+                                          })}
+                                          <td className="py-2 text-center text-xs">−{formatCurrency(Math.max(0, afterRed(calcHorseRawIncome(project)) - roundedExpected.horse))}</td>
+                                          <td className="py-2 text-center text-xs">−{formatCurrency(Math.max(0, afterRed(calcPoolRawIncome(project)) - roundedExpected.pool))}</td>
+                                          <td /><td />
+                                        </tr>
+                                      )}
                                       <tr className="font-semibold text-gray-900 bg-indigo-50 border-t-2 border-indigo-200">
                                         <td className="py-2.5">รวมสุทธิ (หลังหัก)</td>
                                         <td className="py-2.5 text-right">{formatCurrency(netSum)}</td>
