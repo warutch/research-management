@@ -414,11 +414,16 @@ export default function ProjectsPage() {
       // Build full project (activities + installments) เพื่อ INSERT ครั้งเดียว
       // กัน race condition กับ Supabase UPDATE หลังจาก INSERT
       const defaultActs = DEFAULT_ACTIVITIES_BY_TYPE[form.type];
+      const isCompany = !!form.companyPassThrough;
       const activities: Activity[] = defaultActs.map((act) => ({
         ...act,
         id: uuidv4(),
-        horsePercent: HORSE_PERCENT,
-        poolPercent: POOL_PERCENT,
+        // โครงการผ่านบริษัท: Manager/Pool = 0% แล้วยก % ที่ปกติเป็นของ Manager+Pool ให้ Analyst (frank)
+        sharePercent: isCompany
+          ? { ...act.sharePercent, frank: act.sharePercent.frank + HORSE_PERCENT + POOL_PERCENT }
+          : act.sharePercent,
+        horsePercent: isCompany ? 0 : HORSE_PERCENT,
+        poolPercent: isCompany ? 0 : POOL_PERCENT,
         status: 'pending' as ProjectStatus,
       }));
       const defaultInstallments = buildDefaultInstallments(form.type, defaultActs);
@@ -689,8 +694,12 @@ export default function ProjectsPage() {
                   </div>
                 )}
               </div>
-              {/* Commission — แสดงเฉพาะ Student หรือกรณี edit ที่ commission > 0 */}
-              {(form.type === 'student' || (editingId && (form.commission ?? 0) > 0)) && (
+              {/* Commission — โครงการผ่านบริษัทคิดขั้นบันไดอัตโนมัติ (ไม่ต้องกรอกเอง) */}
+              {form.companyPassThrough ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 text-xs text-rose-700">
+                  Commission คิดขั้นบันไดอัตโนมัติ: ทุกช่วง 50,000 บาท หัก 500 บาท (เช่น ≤50,000 → 500, 50,001–100,000 → 1,000) — อิงยอดเรียกเก็บรวมของกิจกรรม
+                </div>
+              ) : (form.type === 'student' || (editingId && (form.commission ?? 0) > 0)) ? (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Commission (บาท)</label>
                   <input
@@ -703,7 +712,7 @@ export default function ProjectsPage() {
                   />
                   <p className="text-xs text-gray-400 mt-1">หักรายโครงการ (one-time) — จ่ายให้ผู้รับ &quot;Commission&quot; ในหน้าโอนตัง</p>
                 </div>
-              )}
+              ) : null}
               {/* Discount (%) — ส่วนลดของโครงการ ใช้ต่อในใบเสนอราคา */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">ส่วนลด (%)</label>
@@ -895,6 +904,9 @@ export default function ProjectsPage() {
                             const lastAct = project.activities[project.activities.length - 1];
                             const defaults: typeof activityForm = lastAct
                               ? { name: '', cost: 0, sharePercent: { ...lastAct.sharePercent }, horsePercent: getHorsePercent(lastAct), poolPercent: getPoolPercent(lastAct), status: 'pending' }
+                              : project.companyPassThrough
+                              // โครงการผ่านบริษัท: เริ่มด้วย Manager/Pool = 0%
+                              ? { name: '', cost: 0, sharePercent: { tangmo: 0, frank: 0, ton: 0 }, horsePercent: 0, poolPercent: 0, status: 'pending' }
                               : emptyActivity();
                             setShowActivityForm(project.id);
                             setActivityForm(defaults);

@@ -143,7 +143,18 @@ export interface ProjectExpense {
 }
 
 // Helper: ดึงค่า commission ของโครงการ (fallback 0)
-export function getCommission(p: Pick<Project, 'commission'>): number {
+// Commission ขั้นบันไดสำหรับโครงการผ่านบริษัท: ทุกช่วง 50,000 บาท หัก 500 บาท
+// (< 50,000 → 500, 50,001–100,000 → 1,000, ...) อิงยอดเรียกเก็บ (ผลรวมกิจกรรม)
+export function calcCompanyCommission(gross: number): number {
+  if (gross <= 0) return 0;
+  return Math.ceil(gross / 50000) * 500;
+}
+
+export function getCommission(p: Pick<Project, 'commission' | 'companyPassThrough' | 'activities'>): number {
+  if (p.companyPassThrough) {
+    const gross = (p.activities || []).reduce((s, a) => s + a.cost, 0);
+    return calcCompanyCommission(gross);
+  }
   return p.commission ?? 0;
 }
 
