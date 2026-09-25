@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { Quotation, QuotationItem } from '@/types';
-import { formatCurrency, formatDate, generateQuotationNumber } from '@/lib/utils';
+import { formatCurrency, formatAmount, formatDate, generateQuotationNumber } from '@/lib/utils';
 import { generateQuotationPdf } from '@/lib/generatePdf';
 import { Plus, Trash2, Pencil, FileDown, Eye, X, Save, FileText } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -283,7 +283,7 @@ export default function QuotationsPage() {
                       </div>
                       <div className="col-span-1">
                         {index === 0 && <span className="text-xs text-gray-500">รวม</span>}
-                        <p className="py-2 text-sm text-gray-700 text-right">{item.amount.toLocaleString()}</p>
+                        <p className="py-2 text-sm text-gray-700 text-right">{formatAmount(item.amount)}</p>
                       </div>
                       <div className="col-span-1 flex justify-center">
                         <button onClick={() => removeItem(index)} className="p-1 text-gray-400 hover:text-red-500">

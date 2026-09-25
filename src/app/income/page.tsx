@@ -5,6 +5,7 @@ import { useStore } from '@/store/useStore';
 import { MEMBERS, MemberId, RecipientId, ALL_SHARE_NAMES, calcRoundedShares, calcRoundedExpected } from '@/types';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency } from '@/lib/utils';
+import { exportReportXlsx, exportReportPdf } from '@/lib/reportExport';
 import { toast } from '@/components/Toast';
 import { Modal } from '@/components/Modal';
 import { Tooltip as InfoTip, TooltipRow } from '@/components/Tooltip';
@@ -277,22 +278,8 @@ export default function IncomePage() {
     };
   };
 
-  const handleExportXlsx = async () => {
-    try {
-      const { exportXlsxReport } = await import('@/lib/exportXlsx');
-      await exportXlsxReport(buildIncomeReport());
-    } catch (e) {
-      toast.error(`Export Excel ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
-    }
-  };
-  const handleExportPdf = async () => {
-    try {
-      const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
-      await exportTransferPdf(buildIncomeReport());
-    } catch (e) {
-      toast.error(`Export PDF ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
-    }
-  };
+  const handleExportXlsx = () => exportReportXlsx(buildIncomeReport);
+  const handleExportPdf = () => exportReportPdf(buildIncomeReport);
 
   return (
     <div className="space-y-6">

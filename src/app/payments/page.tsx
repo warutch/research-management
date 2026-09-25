@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useHydrated } from '@/lib/useHydrated';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { Banknote, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Banknote, X, Image, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { getSlips, recordHasSlip } from '@/types';
 import { toast } from '@/components/Toast';
 
@@ -101,7 +101,7 @@ export default function PaymentsPage() {
                               disabled={isLoading}
                               className="relative inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50"
                             >
-                              <Image size={14} /> {isLoading ? 'กำลังโหลด...' : 'ดู'}
+                              {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />} {isLoading ? 'กำลังโหลด...' : 'ดู'}
                               {slips.length > 1 && (
                                 <span className="bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold ml-0.5">{slips.length}</span>
                               )}

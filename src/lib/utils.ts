@@ -7,6 +7,15 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// ตัวเลขเงินแบบไม่มีสัญลักษณ์ ฿ (ใช้เมื่อมีคำว่า "บาท" หรือหัวคอลัมน์กำกับอยู่แล้ว)
+// รวม logic การจัดรูปแบบไว้ที่เดียว — เลี่ยง toLocaleString() กระจัดกระจายที่ปัดเศษไม่เท่ากัน
+export function formatAmount(amount: number): string {
+  return new Intl.NumberFormat('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 export function formatDate(dateString: string): string {
   if (!dateString) return '-';
   return new Date(dateString).toLocaleDateString('th-TH', {

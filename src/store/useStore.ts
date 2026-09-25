@@ -281,9 +281,33 @@ function logErr(action: string, error: unknown, notify = true) {
   // แจ้ง user เมื่อ write ล้มเหลว (ไม่ใช่ read/load/fetch) — กัน "UI ขึ้นสำเร็จ แต่ DB ไม่อัปเดต"
   // notify=false → caller จัดการ toast เอง (กัน toast ซ้ำ เช่น pool handlers, cleanup deletes)
   if (notify && !/^(load|fetch)/i.test(action)) {
-    const short = typeof summary === 'string' ? summary.slice(0, 90) : '';
-    toast.error(`⚠️ บันทึกขึ้น cloud ไม่สำเร็จ (${action})\n${short}\nข้อมูลอยู่ในเครื่องชั่วคราว — ลองใหม่หรือกด Reload`, { duration: 7000 });
+    toast.error(`⚠️ บันทึกขึ้น cloud ไม่สำเร็จ\n${friendlyErrorMessage(errorInfo, isEmpty)}\nข้อมูลอยู่ในเครื่องชั่วคราว — ลองใหม่หรือกด Reload`, { duration: 7000 });
   }
+}
+
+// แปลง error technical → ข้อความไทยที่ผู้ใช้เข้าใจ (P4)
+function friendlyErrorMessage(info: Record<string, unknown>, isEmpty: boolean): string {
+  const code = String(info.code ?? '');
+  const status = Number(info.status ?? 0);
+  const msg = String(info.message ?? '').toLowerCase();
+  if (isEmpty || msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed')) {
+    return 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ต หรือ session อาจหมดอายุ (ลองเข้าสู่ระบบใหม่)';
+  }
+  if (status === 401 || status === 403 || code === 'PGRST301' || msg.includes('jwt') || msg.includes('token')) {
+    return 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่';
+  }
+  if (code === '42501' || msg.includes('row-level security') || msg.includes('policy')) {
+    return 'สิทธิ์ไม่เพียงพอในการบันทึกข้อมูลนี้';
+  }
+  if (msg.includes('timeout') || msg.includes('timed out') || code === '57014') {
+    return 'เซิร์ฟเวอร์ตอบสนองช้า (timeout) — ลองใหม่อีกครั้ง';
+  }
+  if (code === '23505' || msg.includes('duplicate')) {
+    return 'ข้อมูลซ้ำกับที่มีอยู่แล้ว';
+  }
+  // ไม่รู้จัก → แสดงข้อความจริงแบบสั้น
+  const raw = String(info.message ?? info.details ?? info.code ?? 'unknown error');
+  return raw.slice(0, 100);
 }
 
 // มาร์ค column ที่หายจาก DB (migration ยังไม่รัน) แล้วบอกว่าเจอไหม → ใช้ retry

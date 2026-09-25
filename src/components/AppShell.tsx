@@ -12,7 +12,7 @@ import GlobalSearch from './GlobalSearch';
 import { useStore, getProjectYear, getLatestYear, type StatusFilter, type YearFilter } from '@/store/useStore';
 import { PROJECT_TYPE_COLORS, PROJECT_TYPE_LABELS, type ProjectType, type ProjectTypeFilter } from '@/types';
 import { cn } from '@/lib/utils';
-import { Filter, Search, X, RotateCcw, Pencil, Check } from 'lucide-react';
+import { Filter, Search, X, RotateCcw, Pencil, Check, Eye } from 'lucide-react';
 import { useMemo } from 'react';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -64,6 +64,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div ref={stickyRef} className="sticky top-0 z-30">
             <PageHeader />
             <TopFilterBar />
+            <ReadModeHint />
           </div>
           <div className="p-4 lg:p-8 pt-4 lg:pt-6 max-w-7xl w-full mx-auto">
             {children}
@@ -138,6 +139,21 @@ function EditModeToggle() {
       {editMode ? <Check size={12} /> : <Pencil size={12} />}
       {editMode ? 'กำลังแก้ไข' : 'แก้ไข'}
     </button>
+  );
+}
+
+// แถบบางๆ บอกว่าอยู่โหมดอ่านอย่างเดียว (แสดงเฉพาะตอนไม่ได้อยู่ edit mode)
+function ReadModeHint() {
+  const editMode = useStore((s) => s.editMode);
+  const toggleEditMode = useStore((s) => s.toggleEditMode);
+  if (editMode) return null;
+  return (
+    <div className="flex items-center justify-center gap-1.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-[11px] py-1 px-3">
+      <Eye size={12} className="shrink-0" />
+      <span>โหมดอ่านอย่างเดียว — กด</span>
+      <button onClick={toggleEditMode} className="font-semibold underline underline-offset-2 hover:text-amber-900">แก้ไข</button>
+      <span>มุมขวาบนเพื่อแก้/ลบ</span>
+    </div>
   );
 }
 

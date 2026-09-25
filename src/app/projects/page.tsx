@@ -4,8 +4,9 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, DistributionRecord, RecipientId, ALL_SHARE_NAMES, ALL_SHORT_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcRoundedSharesDelta, calcTotalExpenses } from '@/types';
-import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils';
-import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Download } from 'lucide-react';
+import { formatCurrency, formatAmount, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils';
+import { exportReportXlsx, exportReportPdf } from '@/lib/reportExport';
+import { Plus, Pencil, Trash2, X, Save, CreditCard, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Download, Loader2 } from 'lucide-react';
 import { useHydrated } from '@/lib/useHydrated';
 import SlipUploader from '@/components/SlipUploader';
 import { toast } from '@/components/Toast';
@@ -192,7 +193,7 @@ function ProjectDropdown({
                   {isSel ? (
                     <Check size={15} className="shrink-0 text-indigo-600" />
                   ) : outstanding > 0 ? (
-                    <span className="shrink-0 text-[11px] font-semibold text-red-500">ค้าง ฿{outstanding.toLocaleString()}</span>
+                    <span className="shrink-0 text-[11px] font-semibold text-red-500">ค้าง {formatCurrency(outstanding)}</span>
                   ) : (
                     <span className="shrink-0 text-[11px] font-medium tabular-nums text-gray-400">{progress}%</span>
                   )}
@@ -375,7 +376,7 @@ export default function ProjectsPage() {
       meta: [
         ['โครงการ', `${project.projectCode || ''} ${project.name}`],
         ['ผู้วิจัย', project.client || '-'],
-        ['เงินที่รับมาแล้ว', `${clientPaid.toLocaleString()} จากทั้งหมด ${projTotalCost.toLocaleString()} บาท`],
+        ['เงินที่รับมาแล้ว', `${formatAmount(clientPaid)} จากทั้งหมด ${formatAmount(projTotalCost)} บาท`],
         ['วันที่ export', new Date().toLocaleDateString('en-GB')],
         ['หมายเหตุ', 'ต้องโอนรวม = ส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ'],
       ],
@@ -383,22 +384,8 @@ export default function ProjectsPage() {
     };
   };
 
-  const handleExportProjectXlsx = async (project: Project) => {
-    try {
-      const { exportXlsxReport } = await import('@/lib/exportXlsx');
-      await exportXlsxReport(buildProjectReport(project));
-    } catch (e) {
-      toast.error(`Export Excel ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
-    }
-  };
-  const handleExportProjectPdf = async (project: Project) => {
-    try {
-      const { exportTransferPdf } = await import('@/lib/exportTransferPdf');
-      await exportTransferPdf(buildProjectReport(project));
-    } catch (e) {
-      toast.error(`Export PDF ไม่สำเร็จ: ${(e as { message?: string })?.message || 'unknown'}`);
-    }
-  };
+  const handleExportProjectXlsx = (project: Project) => exportReportXlsx(() => buildProjectReport(project));
+  const handleExportProjectPdf = (project: Project) => exportReportPdf(() => buildProjectReport(project));
 
   const handleSaveDistribution = (projectId: string) => {
     if (!distForm.recipientId) { toast.error('กรุณาเลือกผู้รับเงิน'); return; }
@@ -678,7 +665,7 @@ export default function ProjectsPage() {
                   {!editingId && (
                     <p className="text-xs text-gray-400 mt-1">
                       {form.type === 'student'
-                        ? `Student: 3 กิจกรรม + 2 งวด งวดละ 50% + Commission ฿${STUDENT_DEFAULT_COMMISSION.toLocaleString()}`
+                        ? `Student: 3 กิจกรรม + 2 งวด งวดละ 50% + Commission ${formatCurrency(STUDENT_DEFAULT_COMMISSION)}`
                         : form.type === 'personal'
                         ? 'Personal: งานส่วนตัว — เริ่มจากว่าง เพิ่มกิจกรรม/งวดเงินเอง'
                         : 'Doctor: 4 กิจกรรม + 3 งวด (มัดจำ/บทความ/Submit)'}
@@ -1331,7 +1318,7 @@ export default function ProjectsPage() {
                                             className="relative p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
                                             title={isLoading ? 'กำลังโหลด slip...' : `ดู Slip${slips.length > 0 ? ` (${slips.length} รูป)` : ''}`}
                                           >
-                                            <Image size={16} />
+                                            {isLoading ? <Loader2 size={16} className="animate-spin text-indigo-600" /> : <Image size={16} />}
                                             {slips.length > 1 && (
                                               <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{slips.length}</span>
                                             )}
@@ -1388,7 +1375,7 @@ export default function ProjectsPage() {
                                 <div key={e.id} className="flex items-center gap-2 text-xs bg-white rounded px-2.5 py-1.5 border border-amber-100">
                                   <span className="flex-1 min-w-0 truncate text-gray-700">{e.name}</span>
                                   <span className="text-gray-400 whitespace-nowrap">จ่ายคืน → {ALL_SHARE_NAMES[e.paidBy]}</span>
-                                  <span className="font-medium text-amber-700 whitespace-nowrap">฿{e.amount.toLocaleString()}</span>
+                                  <span className="font-medium text-amber-700 whitespace-nowrap">{formatCurrency(e.amount)}</span>
                                   {editMode && <button onClick={() => { if (confirm('ลบค่าใช้จ่ายนี้?')) deleteExpense(project.id, e.id); }} className="p-0.5 text-gray-400 hover:text-red-500"><Trash2 size={12} /></button>}
                                 </div>
                               ))}
@@ -1876,7 +1863,7 @@ export default function ProjectsPage() {
                                                     className="relative p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
                                                     title={isLoading ? 'กำลังโหลด slip...' : `ดู Slip${slips.length > 0 ? ` (${slips.length} รูป)` : ''}`}
                                                   >
-                                                    <Image size={16} />
+                                                    {isLoading ? <Loader2 size={16} className="animate-spin text-green-600" /> : <Image size={16} />}
                                                     {slips.length > 1 && (
                                                       <span className="absolute -top-1 -right-1 bg-green-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">{slips.length}</span>
                                                     )}

@@ -17,7 +17,7 @@ import { Tooltip as InfoTip, TooltipRow } from '@/components/Tooltip';
 import SlipUploader from '@/components/SlipUploader';
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Pencil, Trash2, Save, X, Image as ImageIcon,
-  Landmark, ArrowDownToLine, ShoppingCart, User, Users, FileText, FolderKanban, ExternalLink,
+  Landmark, ArrowDownToLine, ShoppingCart, User, Users, FileText, FolderKanban, ExternalLink, Loader2,
 } from 'lucide-react';
 
 type TxFormState = Omit<PoolTransaction, 'id' | 'createdAt'>;
@@ -411,7 +411,7 @@ export default function PoolPage() {
                                 className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
                                 title={loadingSlipId === dist.id ? 'กำลังโหลด...' : 'ดู Slip'}
                               >
-                                <ImageIcon size={13} />
+                                {loadingSlipId === dist.id ? <Loader2 size={13} className="animate-spin text-indigo-600" /> : <ImageIcon size={13} />}
                               </button>
                             )}
                             {project && (
@@ -468,7 +468,7 @@ export default function PoolPage() {
                               className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
                               title={loadingSlipId === tx.id ? 'กำลังโหลด...' : 'ดู Slip'}
                             >
-                              <ImageIcon size={13} />
+                              {loadingSlipId === tx.id ? <Loader2 size={13} className="animate-spin text-indigo-600" /> : <ImageIcon size={13} />}
                             </button>
                           )}
                           {editMode && <button onClick={() => openEdit(tx)} className="p-1 text-gray-400 hover:text-gray-600" title="แก้ไข"><Pencil size={13} /></button>}
