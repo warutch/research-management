@@ -197,9 +197,9 @@ export function projectFromDb(row: any): Project {
     discount: row.discount == null ? 0 : Number(row.discount) || 0,
     expenses: Array.isArray(row.expenses) ? row.expenses : [],
     companyPassThrough: row.company_pass_through === true,
-    vatRate: row.vat_rate == null ? DEFAULT_VAT_RATE : Number(row.vat_rate),
-    whtRate: row.wht_rate == null ? DEFAULT_WHT_RATE : Number(row.wht_rate),
-    companyFeeRate: row.company_fee_rate == null ? DEFAULT_COMPANY_FEE_RATE : Number(row.company_fee_rate),
+    vatRate: row.vat_rate == null ? DEFAULT_VAT_RATE : (Number(row.vat_rate) || 0),
+    whtRate: row.wht_rate == null ? DEFAULT_WHT_RATE : (Number(row.wht_rate) || 0),
+    companyFeeRate: row.company_fee_rate == null ? DEFAULT_COMPANY_FEE_RATE : (Number(row.company_fee_rate) || 0),
   };
 }
 

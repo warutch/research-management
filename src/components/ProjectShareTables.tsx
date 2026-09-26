@@ -95,7 +95,7 @@ export function ActivityShareTable({
               {hasReduction && (
                 <tr className="text-sky-700 bg-sky-50">
                   <td className="px-3 py-1.5 text-xs">{reductionLabel}</td>
-                  <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(reductionAmount + reimburseSum)}</td>
+                  <td className="px-3 py-1.5 text-right text-xs">−{formatCurrency(reductionAmount)}</td>
                   {memberShares.map((m) => <td key={m.id} className="px-3 py-1.5 text-center text-xs">−{formatCurrency(m.rawTotal - afterRed(m.rawTotal))}</td>)}
                   <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(horseRawTotal - afterRed(horseRawTotal))}</td>
                   <td className="px-3 py-1.5 text-center text-xs">−{formatCurrency(poolRawTotal - afterRed(poolRawTotal))}</td>

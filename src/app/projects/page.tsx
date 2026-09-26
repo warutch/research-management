@@ -339,7 +339,7 @@ export default function ProjectsPage() {
       id === 'commission' ? 0 : (rs.reimburse[id] || 0);
 
     const clientPaid = payments.filter((p) => p.projectId === project.id).reduce((s, p) => s + p.amount, 0);
-    const projTotalCost = project.activities.reduce((s, a) => s + a.cost, 0);
+    const projTotalCost = calcProjectNetTotal(project); // ยอดที่ลูกค้าต้องจ่าย (หลังส่วนลด)
     const rExp = calcRoundedExpected(project);
     const rNow = calcRoundedShares(project, clientPaid);
 

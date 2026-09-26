@@ -195,10 +195,13 @@ export function getCompanyFactor(project: Project): number {
 }
 
 // ปัดยอด "เหลือแบ่งทีม" ขึ้นเป็นหลักร้อย (ลงท้าย 00) — บริษัทออกส่วนต่างให้ทีม
-// clamp ไม่ให้เกินยอดที่รับมาจริง (cap)
-export function roundTeamPot(project: Project, rawPot: number, cap: number): number {
+// ปัดขึ้นเฉพาะตอน "จ่ายครบ" เท่านั้น; จ่ายบางส่วน = ใช้ยอดตามสัดส่วนจริง (ไม่ปัด)
+// กันบั๊ก: งวดย่อยเล็ก ๆ ได้ 100% (ข้ามหักบริษัท) และ per-installment delta ติดลบ
+export function roundTeamPot(project: Project, rawPot: number, cappedPaid: number, clientPayable: number): number {
   if (!project.companyPassThrough) return rawPot;
-  return Math.min(cap, Math.ceil(rawPot / 100) * 100);
+  const fullyPaid = cappedPaid >= clientPayable - 0.001;
+  if (!fullyPaid) return Math.min(cappedPaid, rawPot); // จ่ายบางส่วน → ตามสัดส่วนจริง
+  return Math.min(cappedPaid, Math.ceil(rawPot / 100) * 100); // จ่ายครบ → ปัดขึ้นหลักร้อย
 }
 
 export interface CompanyBreakdown {
@@ -227,14 +230,14 @@ export function calcCompanyBreakdown(project: Project, gross: number): CompanyBr
   const afterVat = afterWht - vat;
   const companyFee = afterVat * (feeRate / 100);
   const netRaw = afterVat - companyFee;
-  const net = roundTeamPot(project, netRaw, gross);
+  const net = roundTeamPot(project, netRaw, gross, gross);
   return { gross, preVat, vat, wht, afterWht, afterVat, companyFee, netRaw, roundingBonus: net - netRaw, net, vatRate, whtRate, feeRate };
 }
 
 // ยอดสุทธิที่ "ทีม" ได้จริงเมื่อรับเงินครบ (หลังส่วนลด + หลังผ่านบริษัท + ปัดหลักร้อย)
 export function calcTeamNetTotal(project: Project): number {
   const clientPayable = calcProjectNetTotal(project);
-  return roundTeamPot(project, clientPayable * getCompanyFactor(project), clientPayable);
+  return roundTeamPot(project, clientPayable * getCompanyFactor(project), clientPayable, clientPayable);
 }
 
 // รายได้ดิบของสมาชิก (ยังไม่หัก commission) — สำหรับโครงการ
@@ -384,18 +387,20 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
   // pot = เงินที่ "เหลือถึงทีม" หลังผ่านบริษัท (VAT/หัก ณ ที่จ่าย/ค่าบริษัท) — โครงการปกติ factor = 1
   // โครงการผ่านบริษัท: ปัดขึ้นหลักร้อย (บริษัทออกส่วนต่างให้) → ยอดทีมลงท้าย 00
   // การหารสัดส่วนยังใช้ totalCost เต็มเป็นตัวส่วน → ทุกคนถูกลดตามสัดส่วนอัตโนมัติ
-  const pot = roundTeamPot(project, cappedPaid * getCompanyFactor(project), cappedPaid);
+  const pot = roundTeamPot(project, cappedPaid * getCompanyFactor(project), cappedPaid, clientPayable);
 
   if (totalCost <= 0) {
     return { members: { tangmo: 0, frank: 0, ton: 0 }, horse: 0, pool: 0, commission: 0, reimburse: emptyReimburse(), total: 0 };
   }
 
+  // ทำงานเป็นจำนวนเต็มบาททั้งหมด (pot อาจเป็นเศษ → ใช้ floor เพื่อไม่แจกเกินที่มีจริง)
+  const potInt = Math.floor(pot + 1e-6);
+
   // 0. จ่ายคืนค่าดำเนินการก่อน (priority) — ตัดจาก pot ทีมก่อนแบ่ง
-  //    แบ่งตามสัดส่วนเงินที่แต่ละคนออกไป (จำนวนเต็ม, คนสุดท้ายดูดเศษ)
+  //    reimbursedTotal ต้องไม่เกิน potInt (กัน overshoot จาก pot ที่เป็นเศษ)
   const expenses = project.expenses || [];
   const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  // reimbursedTotal ต้องไม่เกิน pot (กัน overshoot)
-  const reimbursedTotal = Math.min(Math.round(totalExpenses), Math.round(pot));
+  const reimbursedTotal = Math.min(Math.round(totalExpenses), potInt);
   const reimburse = emptyReimburse();
   if (totalExpenses > 0 && reimbursedTotal > 0) {
     const byPayer: Partial<Record<RecipientId, number>> = {};
@@ -406,7 +411,6 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
       if (idx === payers.length - 1) {
         reimburse[p] = Math.max(0, reimbursedTotal - allocated); // คนสุดท้ายดูดเศษ (ไม่ติดลบ)
       } else {
-        // clamp ไม่ให้เกินยอดคงเหลือ → คนสุดท้ายไม่ติดลบ
         const v = Math.max(0, Math.min(reimbursedTotal - allocated, Math.round((reimbursedTotal * (byPayer[p] || 0)) / totalExpenses)));
         reimburse[p] = v;
         allocated += v;
@@ -414,28 +418,27 @@ export function calcRoundedShares(project: Project, clientPaid: number): Rounded
     });
   }
 
-  // ยอดที่เหลือหลังจ่ายคืนค่าดำเนินการ → เอาไปแบ่งตามสัดส่วน
-  const distributable = Math.max(0, pot - reimbursedTotal);
-
-  // 1. Manager + Pool: raw proportional, rounded
-  const horse = Math.round((calcHorseRawIncome(project) * distributable) / totalCost);
-  const pool = Math.round((calcPoolRawIncome(project) * distributable) / totalCost);
-
-  // 2. Commission: ตัดจาก members' pot ก่อน (จำนวนเต็ม)
-  const commissionAmount = getCommission(project);
+  // ยอดที่เหลือหลังจ่ายคืน → แบ่งตามสัดส่วน (จำนวนเต็ม)
+  // จัดสรรแบบ "หักงบคงเหลือทีละราย" + Coordinator (ton) เป็นเศษที่เหลือจริง
+  // → รับประกันผลรวม = distributable เป๊ะ ไม่มีใครเกิน budget และไม่มีเงินเกิน pot (BUG: money creation)
+  const distributable = Math.max(0, potInt - reimbursedTotal);
   const memberSumRaw = calcMemberSumRaw(project);
-  const exactMembersPot = (memberSumRaw * distributable) / totalCost;
-  const commission = Math.round(Math.min(commissionAmount, exactMembersPot));
-
-  // 3. ที่เหลือสำหรับ 3 สมาชิก = distributable - horse - pool - commission
-  const remainingForMembers = Math.max(0, distributable - horse - pool - commission);
-
-  // 4. Specialist + Analyst rounded, Coordinator (ton) absorb เศษ
+  const commissionAmount = getCommission(project);
   const tangmoRaw = calcMemberRawIncome(project, 'tangmo');
   const frankRaw = calcMemberRawIncome(project, 'frank');
-  const tangmo = memberSumRaw > 0 ? Math.round((remainingForMembers * tangmoRaw) / memberSumRaw) : 0;
-  const frank = memberSumRaw > 0 ? Math.round((remainingForMembers * frankRaw) / memberSumRaw) : 0;
-  const ton = Math.max(0, remainingForMembers - tangmo - frank);
+
+  let rem = distributable;
+  const horse = Math.max(0, Math.min(rem, Math.round((calcHorseRawIncome(project) * distributable) / totalCost)));
+  rem -= horse;
+  const pool = Math.max(0, Math.min(rem, Math.round((calcPoolRawIncome(project) * distributable) / totalCost)));
+  rem -= pool;
+  const exactMembersPot = (memberSumRaw * distributable) / totalCost;
+  const commission = Math.max(0, Math.min(rem, Math.round(Math.min(commissionAmount, exactMembersPot))));
+  rem -= commission;
+  // 3 สมาชิก: Specialist + Analyst ปัด, Coordinator (ton) ดูดเศษที่เหลือ (≥ 0 เสมอ)
+  const tangmo = memberSumRaw > 0 ? Math.max(0, Math.min(rem, Math.round((rem * tangmoRaw) / memberSumRaw))) : 0;
+  const frank = memberSumRaw > 0 ? Math.max(0, Math.min(rem - tangmo, Math.round((rem * frankRaw) / memberSumRaw))) : 0;
+  const ton = rem - tangmo - frank;
 
   return { members: { tangmo, frank, ton }, horse, pool, commission, reimburse, total: pot };
 }

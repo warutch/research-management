@@ -248,16 +248,34 @@ function stripSlip<T extends { slipUrl?: string; slipUrls?: string[]; hasSlip?: 
 // ระยะเวลาที่ให้กด "เลิกทำ" ก่อนลบจริงบน DB (deferred delete)
 const UNDO_MS = 6000;
 
-// แสดง toast พร้อมปุ่มเลิกทำ + คืน commit จริงหลังหมดเวลา
-// onUndo: คืนสถานะใน state, commit: ยิงลบจริงบน DB
+// การลบที่ยังรอ commit (สำหรับ flush ก่อน reload / ตอนปิดหน้า → กันลบไม่ติดถ้าปิดเร็ว)
+const pendingCommits = new Set<() => void>();
+export function flushPendingDeletes() {
+  for (const run of Array.from(pendingCommits)) run();
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPendingDeletes);
+  window.addEventListener('beforeunload', flushPendingDeletes);
+}
+
+// แสดง toast พร้อมปุ่มเลิกทำ + commit จริงหลังหมดเวลา
+// commit กับ undo เป็น mutually exclusive (ใครทำก่อนได้ก่อน) กัน state/DB เพี้ยน
 function deferredDelete(message: string, onUndo: () => void, commit: () => void) {
-  let undone = false;
-  const timer = setTimeout(() => { if (!undone) commit(); }, UNDO_MS);
+  let done = false;
+  const run = () => { if (done) return; done = true; pendingCommits.delete(run); commit(); };
+  pendingCommits.add(run);
+  const timer = setTimeout(run, UNDO_MS);
   toast.success(message, {
     duration: UNDO_MS,
     action: {
       label: 'เลิกทำ',
-      onClick: () => { undone = true; clearTimeout(timer); onUndo(); },
+      onClick: () => {
+        if (done) return; // commit ไปแล้ว → ไม่ให้ undo คืน state (จะไม่ตรงกับ DB)
+        done = true;
+        clearTimeout(timer);
+        pendingCommits.delete(run);
+        onUndo();
+      },
     },
   });
 }
@@ -351,9 +369,11 @@ function markIfMissingColumn(error: unknown): boolean {
   return false;
 }
 
-// Insert/Update project แบบ retry — ถ้า column หายหลายตัว จะ mark แล้วลองใหม่จนครบ (สูงสุด 5 รอบ)
+// Insert/Update project แบบ retry — ถ้า column หายหลายกลุ่ม จะ mark แล้วลองใหม่จนครบ
+// มี 5 กลุ่ม column ที่ guard ได้ (workspace/commission/discount/expenses/company) → วนสูงสุด 6 รอบ
+// เพื่อให้เหลืออย่างน้อย 1 รอบส่ง payload ที่สะอาดหลัง mark ครบ
 async function insertProjectRetry(project: Project) {
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     const { error } = await supabase.from('projects').insert(projectToDb(project));
     if (!error) return;
     if (markIfMissingColumn(error)) continue;
@@ -362,9 +382,10 @@ async function insertProjectRetry(project: Project) {
   }
 }
 async function updateProjectRetry(id: string, data: Partial<Project>) {
-  if (!data || Object.keys(data).length === 0) return; // ไม่มีอะไรอัปเดต
-  for (let i = 0; i < 5; i++) {
-    const { error } = await supabase.from('projects').update(projectPatchToDb(data)).eq('id', id);
+  for (let i = 0; i < 6; i++) {
+    const patch = projectPatchToDb(data);
+    if (Object.keys(patch).length === 0) return; // ไม่มี field ที่ส่งได้จริง (เลี่ยง update {} ที่ error)
+    const { error } = await supabase.from('projects').update(patch).eq('id', id);
     if (!error) return;
     if (markIfMissingColumn(error)) continue;
     logErr('updateProject', error);
@@ -439,6 +460,8 @@ export const useStore = create<AppState>()(persist(
   dataLoaded: false,
 
   loadAllData: async () => {
+    // commit การลบที่ยังค้างก่อน re-fetch — กันแถวที่ลบไปแล้ว "ฟื้น" กลับมาจาก DB
+    flushPendingDeletes();
     // Two-phase loading:
     //   Phase 1 (critical) — projects+payments+distributions → mark dataLoaded=true ทันที
     //                        หน้า /projects, /income, /payments พร้อม render

@@ -148,7 +148,7 @@ export default function RecipientSummaryCards({
       </div>
       {totalPaidReal > 0 && (
         <div className="mt-3 p-3 bg-indigo-50 rounded-lg flex items-center justify-between text-sm">
-          <span className="text-indigo-700">เงินที่รับมาแล้ว: <strong>{formatCurrency(totalPaidReal)}</strong> จากทั้งหมด <strong>{formatCurrency(grandTotal)}</strong> ({grandTotal > 0 ? Math.round((totalPaidReal / grandTotal) * 100) : 0}%)</span>
+          <span className="text-indigo-700">ลูกค้าชำระแล้ว: <strong>{formatCurrency(totalPaidReal)}</strong> จากยอดที่ต้องชำระ <strong>{formatCurrency(grandTotal)}</strong> ({grandTotal > 0 ? Math.round((totalPaidReal / grandTotal) * 100) : 0}%)</span>
           <span className={totalPaidReal >= grandTotal ? 'text-green-600 font-bold' : 'text-yellow-600'}>{totalPaidReal >= grandTotal ? '✅ รับครบแล้ว' : `คงค้าง ${formatCurrency(grandTotal - totalPaidReal)}`}</span>
         </div>
       )}

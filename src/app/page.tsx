@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, RecipientId, TrackingActivity, Project, ProjectStatus, getHorsePercent, getPoolPercent, getOutstanding, PRIORITY_LABELS, PRIORITY_COLORS } from '@/types';
+import { MEMBERS, RecipientId, TrackingActivity, Project, ProjectStatus, getOutstanding, getPayableExpected, calcProjectNetTotal, PRIORITY_LABELS, PRIORITY_COLORS } from '@/types';
 import Link from 'next/link';
 import { formatCurrency, getStatusLabel, getStatusColor } from '@/lib/utils';
 import { useHydrated } from '@/lib/useHydrated';
@@ -106,7 +106,8 @@ export default function DashboardPage() {
   const inProgressProjects = projects.filter((p) => p.status === 'in_progress').length;
   const pendingCount = projects.filter((p) => p.status === 'pending').length;
 
-  const grandTotalCost = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + a.cost, 0), 0);
+  // ยอดที่ลูกค้าต้องจ่ายรวม (หลังส่วนลด) — ใช้เป็นฐาน % ที่รับมาแล้ว
+  const grandTotalCost = projects.reduce((s, p) => s + calcProjectNetTotal(p), 0);
   const totalClientPaid = payments.reduce((s, p) => s + p.amount, 0);
   const totalDistributed = distributions.reduce((s, d) => s + d.amount, 0);
 
@@ -137,18 +138,15 @@ export default function DashboardPage() {
 
   // Financial stats
   const distPaidAll = (rid: RecipientId) => distributions.filter((d) => d.recipientId === rid).reduce((s, d) => s + d.amount, 0);
+  // expected = ยอดสุทธิที่แต่ละคนควรได้ (หักส่วนลด/ผ่านบริษัท/commission แล้ว) — ให้ตรงกับหน้ารายได้
   const memberRevenue = MEMBERS.map((member) => {
-    const expected = projects.reduce((total, project) => {
-      return total + project.activities.reduce((actTotal, activity) => {
-        return actTotal + (activity.cost * (activity.sharePercent[member.id] || 0)) / 100;
-      }, 0);
-    }, 0);
+    const expected = projects.reduce((total, project) => total + getPayableExpected(project, member.id), 0);
     const actual = distPaidAll(member.id);
     return { name: member.shortName, fullName: member.name, expected, actual, color: member.color };
   });
-  const horseExpected = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + (a.cost * getHorsePercent(a)) / 100, 0), 0);
+  const horseExpected = projects.reduce((s, p) => s + getPayableExpected(p, 'horse'), 0);
   const horseActual = distPaidAll('horse');
-  const poolExpected = projects.reduce((s, p) => s + p.activities.reduce((sa, a) => sa + (a.cost * getPoolPercent(a)) / 100, 0), 0);
+  const poolExpected = projects.reduce((s, p) => s + getPayableExpected(p, 'pool'), 0);
   const poolActual = distPaidAll('pool');
   const chartData = [
     ...memberRevenue.map((m) => ({
