@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcTotalExpenses, calcProjectNetTotal, DEFAULT_VAT_RATE, DEFAULT_WHT_RATE, DEFAULT_COMPANY_FEE_RATE } from '@/types';
+import { MEMBERS, Project, Activity, MemberId, ProjectStatus, STANDARD_ACTIVITIES, HORSE_PERCENT, POOL_PERCENT, PaymentInstallment, PaymentRecord, RecipientId, ALL_SHARE_NAMES, getSlips, recordHasSlip, getHorsePercent, getPoolPercent, ProjectType, PROJECT_TYPE_LABELS, PROJECT_TYPE_COLORS, STUDENT_DEFAULT_COMMISSION, getCommission, calcMemberRawIncome, calcHorseRawIncome, calcPoolRawIncome, calcNetRatio, calcRoundedShares, calcRoundedExpected, calcTotalExpenses, calcProjectNetTotal, calcCompanyBreakdown, calcTeamNetTotal, DEFAULT_VAT_RATE, DEFAULT_WHT_RATE, DEFAULT_COMPANY_FEE_RATE } from '@/types';
 import { formatCurrency, formatAmount, formatDate, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/utils';
 import { exportReportXlsx, exportReportPdf } from '@/lib/reportExport';
 import { Plus, Pencil, Trash2, X, Save, Check, Calculator, Image, Banknote, ClipboardList, Landmark, Receipt, Users, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Loader2, Building2 } from 'lucide-react';
@@ -363,6 +363,25 @@ export default function ProjectsPage() {
       moneyCols: [1, 2, 3, 4, 5, 6],
       totalRow: ['รวม', totals.expected, totals.profit, totals.reimb, totals.shouldPay, totals.actual, totals.outstanding],
     }];
+    // โครงการผ่านบริษัท — แสดง waterfall การหัก (ให้สมาชิกเข้าใจว่าทำไมยอดลด)
+    if (project.companyPassThrough) {
+      const b = calcCompanyBreakdown(project, projTotalCost);
+      const bd: (string | number)[][] = [
+        ['ยอดเรียกเก็บ (รวม VAT)', b.gross],
+        [`หัก ภาษี ณ ที่จ่าย ${b.whtRate}%`, -Math.round(b.wht * 100) / 100],
+        [`หัก VAT นำส่งสรรพากร ${b.vatRate}%`, -Math.round(b.vat * 100) / 100],
+        [`หัก ค่าดำเนินการบริษัท ${b.feeRate}%`, -Math.round(b.companyFee * 100) / 100],
+      ];
+      if (b.operatingDiscount > 0.005) bd.push(['ส่วนลดค่าดำเนินงาน (บริษัทลดให้)', Math.round(b.operatingDiscount * 100) / 100]);
+      sections.unshift({
+        title: 'เงินผ่านบริษัท — ที่มาของยอดแบ่งทีม',
+        headers: ['รายการ', 'จำนวน (บาท)'],
+        rows: bd,
+        moneyCols: [1],
+        totalRow: ['เหลือแบ่งทีม (นำมาแบ่ง)', b.net],
+      });
+    }
+
     const expenses = project.expenses || [];
     if (expenses.length > 0) {
       sections.push({
@@ -382,6 +401,7 @@ export default function ProjectsPage() {
         ['โครงการ', `${project.projectCode || ''} ${project.name}`],
         ['ผู้วิจัย', project.client || '-'],
         ['เงินที่รับมาแล้ว', `${formatAmount(clientPaid)} จากทั้งหมด ${formatAmount(projTotalCost)} บาท`],
+        ...(project.companyPassThrough ? [['เงินผ่านบริษัท', `เรียกเก็บ ${formatAmount(projTotalCost)} → หักภาษี/ค่าบริษัท → เหลือแบ่งทีม ${formatAmount(calcTeamNetTotal(project))} บาท (ดูตารางด้านล่าง)`] as [string, string]] : []),
         ['วันที่ export', new Date().toLocaleDateString('en-GB')],
         ['หมายเหตุ', 'ต้องโอนรวม = ส่วนแบ่งกำไร + จ่ายคืนค่าดำเนินการ'],
       ],
