@@ -16,8 +16,8 @@ export default function CompanyTaxBreakdown({ project, received }: { project: Pr
     { label: 'หัก ภาษี ณ ที่จ่าย', hint: `${b.whtRate}%`, value: `− ${fmt(b.wht)}` },
     { label: 'หัก VAT นำส่งสรรพากร', hint: `${b.vatRate}%`, value: `− ${fmt(b.vat)}` },
     { label: 'หัก ค่าดำเนินการบริษัท', hint: `${b.feeRate}%`, value: `− ${fmt(b.companyFee)}` },
-    ...(b.roundingBonus > 0.005
-      ? [{ tone: 'add' as const, label: 'ส่วนลดค่าดำเนินงาน', value: `+ ${fmt(b.roundingBonus)}` }]
+    ...(b.operatingDiscount > 0.005
+      ? [{ tone: 'add' as const, label: 'ส่วนลดค่าดำเนินงาน', value: `+ ${fmt(b.operatingDiscount)}` }]
       : []),
     { tone: 'net' as const, label: 'เหลือแบ่งทีม', value: fmt(b.net) },
   ];

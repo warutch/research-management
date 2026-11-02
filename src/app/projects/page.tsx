@@ -447,7 +447,7 @@ export default function ProjectsPage() {
   };
 
   const handleEditProject = (project: Project) => {
-    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0, discount: project.discount ?? 0, companyPassThrough: project.companyPassThrough ?? false, vatRate: project.vatRate ?? DEFAULT_VAT_RATE, whtRate: project.whtRate ?? DEFAULT_WHT_RATE, companyFeeRate: project.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE });
+    setForm({ projectCode: project.projectCode, name: project.name, client: project.client, budget: project.budget, startDate: project.startDate, endDate: project.endDate, status: project.status, type: project.type, commission: project.commission ?? 0, discount: project.discount ?? 0, companyPassThrough: project.companyPassThrough ?? false, vatRate: project.vatRate ?? DEFAULT_VAT_RATE, whtRate: project.whtRate ?? DEFAULT_WHT_RATE, companyFeeRate: project.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE, operatingDiscount: project.operatingDiscount ?? 0 });
     setEditingId(project.id);
     setShowForm(true);
   };
@@ -742,6 +742,7 @@ export default function ProjectsPage() {
                       vatRate: form.vatRate ?? DEFAULT_VAT_RATE,
                       whtRate: form.whtRate ?? DEFAULT_WHT_RATE,
                       companyFeeRate: form.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE,
+                      operatingDiscount: form.operatingDiscount ?? 0,
                     })}
                     className="w-4 h-4 accent-sky-600"
                   />
@@ -763,6 +764,11 @@ export default function ProjectsPage() {
                         <label className="block text-xs text-gray-500 mb-1">ค่าบริษัท (%)</label>
                         <input type="number" min={0} value={form.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE} onChange={(e) => setForm({ ...form, companyFeeRate: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
                       </div>
+                    </div>
+                    <div className="mt-2">
+                      <label className="block text-xs text-gray-500 mb-1">ส่วนลดค่าดำเนินงาน (บาท) — บริษัทลดให้ทีม (กรอกเอง)</label>
+                      <input type="number" min={0} value={form.operatingDiscount || ''} onChange={(e) => setForm({ ...form, operatingDiscount: Number(e.target.value) || 0 })} className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="0" />
+                      <p className="text-[11px] text-gray-400 mt-1">บวกเพิ่มให้ยอด &quot;เหลือแบ่งทีม&quot; (เช่น ปัดให้ลงท้าย 00)</p>
                     </div>
                   </>
                 )}

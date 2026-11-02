@@ -77,7 +77,7 @@ export function isCompanyColumnsMissingError(e: unknown): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const err = e as any;
   const msg: string = (err?.message || '') + ' ' + (err?.details || '') + ' ' + (err?.hint || '');
-  return /company_pass_through|vat_rate|wht_rate|company_fee_rate/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
+  return /company_pass_through|vat_rate|wht_rate|company_fee_rate|operating_discount/i.test(msg) && (err?.code === 'PGRST204' || /(could not find|schema cache).*column|column.*(schema cache|does not exist)/i.test(msg));
 }
 
 // เช่นเดียวกัน — กัน error ถ้า DB ยังไม่มี column 'expenses' บน projects
@@ -146,6 +146,7 @@ export function projectToDb(p: Project): any {
     base.vat_rate = p.vatRate ?? DEFAULT_VAT_RATE;
     base.wht_rate = p.whtRate ?? DEFAULT_WHT_RATE;
     base.company_fee_rate = p.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE;
+    base.operating_discount = p.operatingDiscount ?? 0;
   }
   return base;
 }
@@ -173,6 +174,7 @@ export function projectPatchToDb(data: Partial<Project>): any {
     if ('vatRate' in data) patch.vat_rate = data.vatRate ?? DEFAULT_VAT_RATE;
     if ('whtRate' in data) patch.wht_rate = data.whtRate ?? DEFAULT_WHT_RATE;
     if ('companyFeeRate' in data) patch.company_fee_rate = data.companyFeeRate ?? DEFAULT_COMPANY_FEE_RATE;
+    if ('operatingDiscount' in data) patch.operating_discount = data.operatingDiscount ?? 0;
   }
   return patch;
 }
@@ -200,6 +202,7 @@ export function projectFromDb(row: any): Project {
     vatRate: row.vat_rate == null ? DEFAULT_VAT_RATE : (Number(row.vat_rate) || 0),
     whtRate: row.wht_rate == null ? DEFAULT_WHT_RATE : (Number(row.wht_rate) || 0),
     companyFeeRate: row.company_fee_rate == null ? DEFAULT_COMPANY_FEE_RATE : (Number(row.company_fee_rate) || 0),
+    operatingDiscount: row.operating_discount == null ? 0 : (Number(row.operating_discount) || 0),
   };
 }
 

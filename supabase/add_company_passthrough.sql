@@ -10,3 +10,4 @@ alter table projects add column if not exists company_pass_through boolean not n
 alter table projects add column if not exists vat_rate numeric not null default 7;
 alter table projects add column if not exists wht_rate numeric not null default 3;
 alter table projects add column if not exists company_fee_rate numeric not null default 10;
+alter table projects add column if not exists operating_discount numeric not null default 0;
