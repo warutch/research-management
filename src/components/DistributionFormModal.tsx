@@ -1,8 +1,8 @@
 'use client';
 
 import { MEMBERS, RecipientId, Project, PaymentRecord, DistributionRecord,
-  getCommission, calcRoundedShares, getClientPaid, getDistributed, getOutstanding, recipientShare } from '@/types';
-import { formatCurrency } from '@/lib/utils';
+  getCommission, calcRoundedShares, getClientPaid, getDistributed, getOutstanding, getPayableNow, recipientShare } from '@/types';
+import { formatCurrency, formatAmount } from '@/lib/utils';
 import SlipUploader from '@/components/SlipUploader';
 import { Banknote, X, Save } from 'lucide-react';
 
@@ -32,6 +32,14 @@ interface Props {
 export default function DistributionFormModal({ project, distForm, setDistForm, payments, distributions, onClose, onSave, onPreviewSlip }: Props) {
   const commission = getCommission(project);
 
+  // ป้ายตัวเลือกผู้รับ: ต่อท้ายชื่อด้วยยอดค้างโอน (จะได้รู้ว่ายังขาดใครเท่าไร)
+  const optLabel = (name: string, rid: RecipientId) => {
+    const payable = getPayableNow(project, rid, payments);
+    if (payable <= 0.5) return name; // ไม่มีส่วนแบ่งในโครงการนี้
+    const out = getOutstanding(project, rid, payments, distributions);
+    return out > 0.5 ? `${name} (ค้าง ${formatAmount(out)} บาท)` : `${name} (โอนครบแล้ว)`;
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
@@ -60,11 +68,11 @@ export default function DistributionFormModal({ project, distForm, setDistForm, 
               className="w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
             >
               <option value="">-- เลือกผู้รับเงิน --</option>
-              {MEMBERS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              <option value="horse">Manager</option>
-              <option value="pool">Pool money</option>
+              {MEMBERS.map((m) => <option key={m.id} value={m.id}>{optLabel(m.name, m.id)}</option>)}
+              <option value="horse">{optLabel('Manager', 'horse')}</option>
+              <option value="pool">{optLabel('Pool money', 'pool')}</option>
               {commission > 0 && (
-                <option value="commission">Commission ({formatCurrency(commission)})</option>
+                <option value="commission">{optLabel('Commission', 'commission')}</option>
               )}
             </select>
           </div>
